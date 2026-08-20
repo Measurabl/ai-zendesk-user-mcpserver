@@ -127,6 +127,10 @@ export const startBrowserAuth = (
   const { authorizeUrl: authorizeBase, tokenUrl } = getOAuthUrls(subdomain);
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
+  // OAuth 2.1 CSRF check: the provider echoes `state` back on the redirect and
+  // the callback handler below rejects any request that does not round-trip it.
+  // PKCE already blocks code injection; this closes the forged-callback path.
+  const expectedState = randomBytes(16).toString('base64url');
 
   return new Promise<StartedBrowserAuth>((resolveStarted, rejectStarted) => {
     let resolveToken!: (token: TokenResult) => void;
@@ -234,6 +238,22 @@ export const startBrowserAuth = (
         return;
       }
 
+      // A wrong or absent `state` is answered without settling the token
+      // promise or stopping the server: a stray/forged request must not be
+      // able to cancel the genuine sign-in still in flight.
+      const returnedState = url.searchParams.get('state');
+      if (returnedState !== expectedState) {
+        logger.warn('oauth_state_mismatch', { hasState: returnedState !== null });
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end(
+          errorPage(
+            'Invalid state parameter',
+            'This response does not match the sign-in attempt in progress. Close this tab and retry from your AI assistant.',
+          ),
+        );
+        return;
+      }
+
       finishRequest(res, await resolveCallback(url));
     });
 
@@ -252,8 +272,13 @@ export const startBrowserAuth = (
     };
     callbackServer.once('error', onStartError);
 
-    // Start on fixed port (must match redirect_uri registered in Zendesk OAuth client)
-    callbackServer.listen(requestedPort, () => {
+    // Start on fixed port (must match redirect_uri registered in Zendesk OAuth
+    // client), bound to the IPv4 loopback only (RFC 8252 s7.3): the callback
+    // listener must not be reachable from the local network during the auth
+    // window. The redirect_uri stays `localhost` — that is what existing
+    // Zendesk OAuth clients have registered — and browsers fall back from ::1
+    // to 127.0.0.1 when the IPv6 connect is refused.
+    callbackServer.listen(requestedPort, '127.0.0.1', () => {
       // Now that we're listening, a later server error must settle the *token*
       // flow (the started promise is already resolved) and tear the server down,
       // so the token store doesn't wedge waiting on a promise that never settles.
@@ -274,6 +299,7 @@ export const startBrowserAuth = (
         scope: 'read write',
         code_challenge: codeChallenge,
         code_challenge_method: 'S256',
+        state: expectedState,
       });
 
       const authUrl = `${authorizeBase}?${params.toString()}`;

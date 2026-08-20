@@ -97,15 +97,18 @@ describe('authenticateViaBrowser', () => {
     );
 
     // Capture the authorize URL as soon as `open` is called, then
-    // simulate the browser callback hitting our local HTTP server.
+    // simulate the browser callback hitting our local HTTP server. The
+    // provider echoes `state` back on the redirect, so the simulated
+    // callback must round-trip it too.
     openMock.mockImplementation(async (url: string) => {
       const authUrl = new URL(url);
       const redirectUri = authUrl.searchParams.get('redirect_uri');
+      const state = authUrl.searchParams.get('state');
       expect(redirectUri).toBeTruthy();
       // Fire the callback (decouple from this microtask so the auth
       // promise can keep awaiting the HTTP server).
       setImmediate(() => {
-        fetch(`${redirectUri}?code=the-auth-code`).catch(() => {
+        fetch(`${redirectUri}?code=the-auth-code&state=${state}`).catch(() => {
           /* server will close as soon as it has processed the code */
         });
       });
@@ -128,6 +131,8 @@ describe('authenticateViaBrowser', () => {
     expect(openedUrl.searchParams.get('client_id')).toBe(CLIENT_ID);
     expect(openedUrl.searchParams.get('code_challenge_method')).toBe('S256');
     expect(openedUrl.searchParams.get('code_challenge')).toBeTruthy();
+    // CSRF protection: a random, URL-safe `state` rides on every authorize URL.
+    expect(openedUrl.searchParams.get('state')).toMatch(/^[A-Za-z0-9_-]{16,}$/);
     expect(openedUrl.searchParams.get('redirect_uri')).toMatch(
       /^http:\/\/localhost:\d+\/callback$/,
     );
@@ -142,9 +147,11 @@ describe('authenticateViaBrowser', () => {
     });
 
     openMock.mockImplementation(async (url: string) => {
-      const redirectUri = new URL(url).searchParams.get('redirect_uri');
+      const authUrl = new URL(url);
+      const redirectUri = authUrl.searchParams.get('redirect_uri');
+      const state = authUrl.searchParams.get('state');
       setImmediate(() => {
-        fetch(`${redirectUri}?code=the-auth-code`)
+        fetch(`${redirectUri}?code=the-auth-code&state=${state}`)
           .then((res) => res.text())
           .then((text) => resolveBody(text))
           .catch(() => resolveBody(''));
@@ -167,9 +174,13 @@ describe('authenticateViaBrowser', () => {
     });
 
     openMock.mockImplementation(async (url: string) => {
-      const redirectUri = new URL(url).searchParams.get('redirect_uri');
+      const authUrl = new URL(url);
+      const redirectUri = authUrl.searchParams.get('redirect_uri');
+      const state = authUrl.searchParams.get('state');
       setImmediate(() => {
-        fetch(`${redirectUri}?error=access_denied&error_description=${encodeURIComponent(xss)}`)
+        fetch(
+          `${redirectUri}?error=access_denied&error_description=${encodeURIComponent(xss)}&state=${state}`,
+        )
           .then((res) => res.text())
           .then((text) => resolveBody(text))
           .catch(() => resolveBody(''));
@@ -202,9 +213,11 @@ describe('authenticateViaBrowser', () => {
     });
 
     openMock.mockImplementation(async (url: string) => {
-      const redirectUri = new URL(url).searchParams.get('redirect_uri');
+      const authUrl = new URL(url);
+      const redirectUri = authUrl.searchParams.get('redirect_uri');
+      const state = authUrl.searchParams.get('state');
       setImmediate(() => {
-        fetch(`${redirectUri}?code=the-auth-code`)
+        fetch(`${redirectUri}?code=the-auth-code&state=${state}`)
           .then((res) => res.text())
           .then((text) => resolveBody(text))
           .catch(() => resolveBody(''));
@@ -239,9 +252,11 @@ describe('authenticateViaBrowser', () => {
     // user can still complete auth by visiting the URL, so we drive the callback
     // ourselves to let the promise resolve.
     openMock.mockImplementation(async (url: string) => {
-      const redirectUri = new URL(url).searchParams.get('redirect_uri');
+      const authUrl = new URL(url);
+      const redirectUri = authUrl.searchParams.get('redirect_uri');
+      const state = authUrl.searchParams.get('state');
       setImmediate(() => {
-        fetch(`${redirectUri}?code=the-auth-code`).catch(() => {});
+        fetch(`${redirectUri}?code=the-auth-code&state=${state}`).catch(() => {});
       });
       throw Object.assign(new Error('spawn failed'), { code: 'ENOENT' });
     });
@@ -276,9 +291,11 @@ describe('startBrowserAuth', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       openMock.mockImplementation(async (url: string) => {
-        const redirectUri = new URL(url).searchParams.get('redirect_uri');
+        const authUrl = new URL(url);
+        const redirectUri = authUrl.searchParams.get('redirect_uri');
+        const state = authUrl.searchParams.get('state');
         setImmediate(() => {
-          fetch(`${redirectUri}?code=the-auth-code`).catch(() => {});
+          fetch(`${redirectUri}?code=the-auth-code&state=${state}`).catch(() => {});
         });
         return {};
       });
@@ -304,6 +321,92 @@ describe('startBrowserAuth', () => {
     }
   });
 
+  it('binds the callback server to the IPv4 loopback interface only', async () => {
+    mswServer.use(oauthTokenHandler);
+    openMock.mockResolvedValue({});
+
+    const started = await startBrowserAuth({
+      subdomain: SUB,
+      oauthClientId: CLIENT_ID,
+      callbackPort: 0,
+    });
+
+    // RFC 8252 s7.3 loopback flow: the listener must not be reachable from the
+    // local network during the auth window. The redirect_uri stays `localhost`
+    // (it must match the URL registered in the Zendesk OAuth client); browsers
+    // fall back from ::1 to 127.0.0.1 when the IPv6 connect is refused.
+    const server = lastCallbackServer();
+    const addr = server.address() as { address: string; family: string };
+    expect(addr.address).toBe('127.0.0.1');
+    expect(addr.family).toBe('IPv4');
+
+    // Complete the flow so the server tears down and nothing leaks across tests.
+    const authUrl = new URL(started.authorizeUrl);
+    const redirectUri = authUrl.searchParams.get('redirect_uri') ?? '';
+    const state = authUrl.searchParams.get('state') ?? '';
+    await fetch(`${redirectUri}?code=the-auth-code&state=${state}`);
+    await expect(started.tokenPromise).resolves.toMatchObject({ access_token: 'token-abc' });
+    await awaitClosed(server);
+  });
+
+  it('generates a fresh state value per flow', async () => {
+    mswServer.use(oauthTokenHandler);
+    openMock.mockResolvedValue({});
+
+    const states: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const started = await startBrowserAuth({
+        subdomain: SUB,
+        oauthClientId: CLIENT_ID,
+        callbackPort: 0,
+      });
+      const authUrl = new URL(started.authorizeUrl);
+      states.push(authUrl.searchParams.get('state') ?? '');
+      // Complete each flow so its server tears down before the next starts.
+      const redirectUri = authUrl.searchParams.get('redirect_uri') ?? '';
+      await fetch(`${redirectUri}?code=the-auth-code&state=${states[i]}`);
+      await started.tokenPromise;
+    }
+
+    expect(states[0]).toMatch(/^[A-Za-z0-9_-]{16,}$/);
+    expect(states[1]).toMatch(/^[A-Za-z0-9_-]{16,}$/);
+    expect(states[0]).not.toBe(states[1]);
+  });
+
+  it('rejects a callback with a wrong or missing state without settling the flow', async () => {
+    mswServer.use(oauthTokenHandler);
+    openMock.mockResolvedValue({});
+    const logger = makeLogger();
+
+    const started = await startBrowserAuth(
+      { subdomain: SUB, oauthClientId: CLIENT_ID, callbackPort: 0 },
+      logger,
+    );
+    const authUrl = new URL(started.authorizeUrl);
+    const redirectUri = authUrl.searchParams.get('redirect_uri') ?? '';
+    const state = authUrl.searchParams.get('state') ?? '';
+    const server = lastCallbackServer();
+
+    // Forged/stray callbacks: wrong state, then no state at all. Each is
+    // answered 400 but must NOT settle the token promise or stop the server —
+    // otherwise anyone who can reach the port could cancel a genuine sign-in.
+    const wrong = await fetch(`${redirectUri}?code=stolen-code&state=${state}x`);
+    expect(wrong.status).toBe(400);
+    expect(await wrong.text()).toContain('Invalid state');
+
+    const missing = await fetch(`${redirectUri}?code=stolen-code`);
+    expect(missing.status).toBe(400);
+
+    expect(logger.warn).toHaveBeenCalledWith('oauth_state_mismatch', { hasState: true });
+    expect(logger.warn).toHaveBeenCalledWith('oauth_state_mismatch', { hasState: false });
+    expect(server.listening).toBe(true);
+
+    // The genuine callback still completes the flow afterwards.
+    await fetch(`${redirectUri}?code=the-auth-code&state=${state}`);
+    await expect(started.tokenPromise).resolves.toMatchObject({ access_token: 'token-abc' });
+    await awaitClosed(server);
+  });
+
   it('answers 404 on any path but /callback, leaving the flow waiting', async () => {
     mswServer.use(oauthTokenHandler);
     openMock.mockResolvedValue({});
@@ -313,7 +416,9 @@ describe('startBrowserAuth', () => {
       oauthClientId: CLIENT_ID,
       callbackPort: 0,
     });
-    const redirectUri = new URL(started.authorizeUrl).searchParams.get('redirect_uri') ?? '';
+    const authUrl = new URL(started.authorizeUrl);
+    const redirectUri = authUrl.searchParams.get('redirect_uri') ?? '';
+    const state = authUrl.searchParams.get('state') ?? '';
     const origin = new URL(redirectUri).origin;
 
     // Browsers ask for /favicon.ico unprompted; that must not be mistaken for a
@@ -326,7 +431,7 @@ describe('startBrowserAuth', () => {
     expect(server.listening).toBe(true);
 
     // The real callback still works afterwards, which is the point of not tearing down.
-    await fetch(`${redirectUri}?code=the-auth-code`);
+    await fetch(`${redirectUri}?code=the-auth-code&state=${state}`);
     await expect(started.tokenPromise).resolves.toMatchObject({ access_token: 'token-abc' });
     await awaitClosed(server);
   });
@@ -363,7 +468,10 @@ describe('startBrowserAuth', () => {
 
   it('rejects with an actionable message (and logs it) when the callback port is in use', async () => {
     const blocker = createServer();
-    await new Promise<void>((resolve) => blocker.listen(0, resolve));
+    // The blocker must hold the same address the flow binds (127.0.0.1): a
+    // wildcard-bound blocker does not collide with a loopback bind on BSD/macOS
+    // (SO_REUSEADDR), so the flow would start instead of failing.
+    await new Promise<void>((resolve) => blocker.listen(0, '127.0.0.1', resolve));
     const port = (blocker.address() as { port: number }).port;
     const logger = makeLogger();
 
