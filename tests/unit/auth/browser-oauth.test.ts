@@ -392,13 +392,20 @@ describe('startBrowserAuth', () => {
     // otherwise anyone who can reach the port could cancel a genuine sign-in.
     const wrong = await fetch(`${redirectUri}?code=stolen-code&state=${state}x`);
     expect(wrong.status).toBe(400);
-    expect(await wrong.text()).toContain('Invalid state');
+    expect(wrong.headers.get('content-type')).toBe('text/html');
+    const wrongBody = await wrong.text();
+    expect(wrongBody).toContain('Invalid state');
+    // The page must tell the user what to do, not just name the failure.
+    expect(wrongBody).toContain('does not match the sign-in attempt');
 
     const missing = await fetch(`${redirectUri}?code=stolen-code`);
     expect(missing.status).toBe(400);
 
-    expect(logger.warn).toHaveBeenCalledWith('oauth_state_mismatch', { hasState: true });
-    expect(logger.warn).toHaveBeenCalledWith('oauth_state_mismatch', { hasState: false });
+    // Ordered, not just "called with": the first request carried a (wrong)
+    // state and the second none, so `hasState` must track that per call — a
+    // flipped null-check would swap them while leaving the set identical.
+    expect(logger.warn).toHaveBeenNthCalledWith(1, 'oauth_state_mismatch', { hasState: true });
+    expect(logger.warn).toHaveBeenNthCalledWith(2, 'oauth_state_mismatch', { hasState: false });
     expect(server.listening).toBe(true);
 
     // The genuine callback still completes the flow afterwards.
