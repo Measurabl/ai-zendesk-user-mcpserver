@@ -1,0 +1,71 @@
+name: Upstream sync
+
+# Opens a pull request carrying upstream (fruggr/zendesk-mcp-server) main into
+# this fork, so every upstream change is gated by CI, CodeQL, dependency
+# review, pnpm audit and zizmor before it can reach our main. Never use the
+# GitHub "Sync fork" button — it fast-forwards main directly and bypasses all
+# of those checks.
+#
+# This workflow only ever pushes to the `upstream-sync` branch and opens a PR;
+# it never merges. A human reviews and merges the PR once checks are green.
+#
+# Known GitHub limitation: a PR created with the built-in GITHUB_TOKEN does
+# not trigger `pull_request` workflows. If the sync PR shows no checks, either
+# (a) add a fine-grained PAT with contents:write + pull-requests:write as the
+# repo secret SYNC_TOKEN (used automatically below), or (b) close and reopen
+# the PR to kick the checks off manually.
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: upstream-sync
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+
+      - name: Fetch upstream and push the sync branch
+        id: fetch
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/fruggr/zendesk-mcp-server.git
+          git fetch upstream main
+          behind="$(git rev-list --count origin/main..upstream/main)"
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          if [ "$behind" = "0" ]; then
+            echo "Fork is up to date with upstream; nothing to sync."
+            exit 0
+          fi
+          # Force-push: the branch always mirrors upstream/main exactly. The
+          # PR diff against our main is the complete, reviewable delta.
+          git push --force origin upstream/main:refs/heads/upstream-sync
+
+      - name: Open the sync PR if one is not already open
+        if: steps.fetch.outputs.behind != '0'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
+          BEHIND: ${{ steps.fetch.outputs.behind }}
+        run: |
+          set -euo pipefail
+          existing="$(gh pr list --head upstream-sync --state open --json number --jq length)"
+          if [ "$existing" != "0" ]; then
+            echo "Sync PR already open; the branch update above refreshed it."
+            exit 0
+          fi
+          gh pr create \
+            --head upstream-sync \
+            --title "chore: sync ${BEHIND} commit(s) from upstream" \
+            --body "$(printf 'Automated sync from [fruggr/zendesk-mcp-server](https://github.com/fruggr/zendesk-mcp-server) main (%s new commit(s)).\n\nReview checklist before merging:\n- [ ] Security / CodeQL / dependency-review / audit / zizmor checks are green\n- [ ] Diff reviewed — especially changes under `.github/`, `scripts/`, `src/auth/`, `src/transports/` and `package.json` scripts\n- [ ] No new lifecycle scripts or `allowBuilds` entries without justification' "$BEHIND")"

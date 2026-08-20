@@ -29,14 +29,14 @@ jobs:
     # outlive the App installation token minted below.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           # Single source of truth for the tooling Node version: .nvmrc.
           # ci.yml uses the same file. Node 20 compatibility (the floor
@@ -87,7 +87,7 @@ jobs:
       # minted here rather than at the top of the job because it lives one hour
       # and is revoked in post-job: install, test and build must not eat into
       # that window.
-      - uses: actions/create-github-app-token@v3
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
         with:
           # `client-id`, not the deprecated `app-id`. A variable rather than a
