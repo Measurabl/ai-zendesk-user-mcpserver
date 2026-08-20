@@ -1,0 +1,18 @@
+# zizmor suppression policy — every entry needs a rationale.
+rules:
+  dangerous-triggers:
+    ignore:
+      # pull_request_target is used here so the workflow can label/comment on
+      # fork PRs with the base repo's token. Reviewed: it never checks out or
+      # executes PR head code, and interpolates no PR-controlled strings into
+      # shell — it only calls the GitHub API via github-script. The classic
+      # pwn-request precondition (running attacker code with an elevated
+      # token) is absent.
+      - duplicate-issue-guard.yml
+  artipacked:
+    ignore:
+      # This workflow's whole job is to push the upstream-sync branch, so the
+      # checkout credential must persist for the later git push step. The
+      # artipacked leak path (credentials captured into an uploaded artifact)
+      # does not exist here: the workflow uploads no artifacts.
+      - upstream-sync.yml
