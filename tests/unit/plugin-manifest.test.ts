@@ -1,4 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 // The build script owns the version grammar and generates the runtime
@@ -11,6 +14,7 @@ import {
   runtimePackageJson,
   todayVersion,
 } from '../../scripts/build-plugin.mjs';
+import { resolveTokenPath } from '../../src/auth/token-persistence';
 
 const PLUGIN_DIR = 'plugins/zendesk-mcp';
 
@@ -73,13 +77,13 @@ describe('development marketplace (.claude-plugin/marketplace.json)', () => {
     expect(marketplace.name).not.toBe('claude-plugins-official');
   });
 
-  it('lists exactly the plugin, by relative path, at the same version as plugin.json', () => {
+  it('lists exactly the plugin, by relative path, without a second version to keep in sync', () => {
     expect(marketplace.plugins).toHaveLength(1);
     const entry = marketplace.plugins[0];
     expect(entry?.name).toBe(plugin.name);
     expect(entry?.source).toBe(`./${PLUGIN_DIR}`);
-    expect(entry?.version).toBe(plugin.version);
-    expect(existsSync(at(`${PLUGIN_DIR}/.claude-plugin/plugin.json`))).toBe(true);
+    // plugin.json's version always wins and the docs advise against setting both.
+    expect(entry?.version).toBeUndefined();
   });
 });
 
@@ -126,9 +130,11 @@ describe('setup skill frontmatter', () => {
     expect(frontmatter.get('argument-hint')).toMatch(/install\|verify\|update\|uninstall/);
   });
 
-  it('pre-approves only quoted bash invocations of scripts that exist in the skill', () => {
+  it('pre-approves only exact, quoted, argument-free bash invocations of scripts that exist', () => {
     const rules = frontmatter.get('allowed-tools') ?? '';
-    const exactForm = /Bash\(bash "\$\{CLAUDE_SKILL_DIR\}\/scripts\/([a-z-]+\.sh)"\*\)/g;
+    // No trailing wildcard: a prefix rule would pre-approve arbitrary arguments,
+    // and verify.sh's --config could then point the handshake at any command.
+    const exactForm = /Bash\(bash "\$\{CLAUDE_SKILL_DIR\}\/scripts\/([a-z-]+\.sh)"\)/g;
     const scripts = [...rules.matchAll(exactForm)].map((match) => match[1] ?? '');
     expect(scripts.length).toBeGreaterThan(0);
     // Every rule is one of the exact-form matches above: nothing broader slipped in.
@@ -138,10 +144,45 @@ describe('setup skill frontmatter', () => {
     }
   });
 
-  it('never pre-approves the scripts that change things outside the plugin directory', () => {
+  it('never pre-approves the scripts that download, edit the Claude config, restart, or uninstall', () => {
     const rules = frontmatter.get('allowed-tools') ?? '';
     for (const script of ['ensure-node.sh', 'register.sh', 'restart-claude.sh', 'uninstall.sh']) {
       expect(rules).not.toContain(script);
+    }
+  });
+});
+
+describe('token file path (lib.sh vs the server)', () => {
+  it('lib.sh computes the same token path the server derives from its package name', () => {
+    const home = mkdtempSync(join(tmpdir(), 'zmcp-home-'));
+    try {
+      // The Desktop-launched server never sees a profile XDG_CONFIG_HOME, so
+      // lib.sh must not honour the shell's either.
+      const env: Record<string, string> = {
+        HOME: home,
+        PATH: '/usr/bin:/bin',
+        XDG_CONFIG_HOME: join(home, 'elsewhere'),
+      };
+      const lib = at(`${PLUGIN_DIR}/skills/setup/scripts/lib.sh`);
+      const shell = spawnSync('/bin/bash', ['-c', `. "${lib}" && printf '%s' "$ZMCP_TOKEN_FILE"`], {
+        env,
+        encoding: 'utf8',
+      });
+      expect(shell.status).toBe(0);
+      const saved = { HOME: process.env.HOME, XDG: process.env.XDG_CONFIG_HOME };
+      process.env.HOME = home;
+      delete process.env.XDG_CONFIG_HOME;
+      try {
+        expect(shell.stdout).toBe(resolveTokenPath('measurablhelp'));
+      } finally {
+        process.env.HOME = saved.HOME;
+        if (saved.XDG !== undefined) process.env.XDG_CONFIG_HOME = saved.XDG;
+      }
+      expect(shell.stdout).toBe(
+        join(home, '.config', 'fruggr', 'zendesk-mcp-server', 'measurablhelp.json'),
+      );
+    } finally {
+      rmSync(home, { recursive: true, force: true });
     }
   });
 });

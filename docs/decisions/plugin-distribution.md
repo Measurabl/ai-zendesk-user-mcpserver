@@ -72,21 +72,31 @@ semantic-release would move underneath a committed bundle.
 re-release: `2026.9.23`, `2026.9.23+1`. Three numeric segments satisfy Claude's
 plugin tooling, which expects semver, and the `claude-org-management` linter,
 which enforces `x.y.z` on the vendored copy. Measurabl's `chad-gpt` plugin
-already ships that exact convention. The `customer-360` convention
+already documents that exact convention. Update detection compares version
+strings, not semver precedence (the plugin docs: users receive an update when
+the string changes), so build metadata is a real bump. The development
+marketplace entry carries no version of its own: `plugin.json` always wins,
+and the docs advise against setting both. The `customer-360` convention
 (`2026.8.21.3`) was not adopted because four segments fail that linter, which
 is why its vendored copy has to be re-versioned by hand on every re-vendor.
 
-### 2.3 `bundle-fresh` fails only when the PR touched the bundle's inputs
+### 2.3 `Bundle fresh` fails a stale bundle, except for bots
 
 The check rebuilds the bundle on every PR from the PR's own head commit and
-lockfile. It fails when the result differs **and** the PR changed `src/`,
-`tsconfig.json`, `scripts/build-plugin.mjs` or `plugins/zendesk-mcp/`. A
-dependency-only PR that would change the bundle only warns. Renovate opens
-such PRs twice a week and cannot rebuild the bundle (no bot commits, a
-deliberate choice), so a strict check would block every dependency update.
-The release procedure always rebuilds, so dependency changes reach AEs at the
-next release. The head commit, not the merge commit, is built so that an
-honestly rebuilt branch cannot fail because `main` moved.
+lockfile and fails when the result differs, unless a bot (Renovate,
+Dependabot) opened the PR: nobody rebuilds on a bot's behalf (no bot commits,
+a deliberate choice), so a dependency update that would change the bundle only
+warns there. The exemption is by author, not by a list of "bundle inputs",
+because such a list has to be maintained and a human dependency bump meant to
+reach AEs must not slip through as a warning. The head commit, not the merge
+commit, is built so that an honestly rebuilt branch cannot fail because `main`
+moved. Diffs are three-dot (what the PR itself changed): the weekly
+upstream-sync branch mirrors an upstream that has no plugin at all, and a
+two-dot diff would report the whole plugin as changed there. The same job runs
+on every push to `main` and weekly, where a stale bundle is an error: it means
+a release is due, and it is the one signal that the third-party code inside
+the committed bundle lags the lockfile that dependency review and `pnpm audit`
+scan (CodeQL skips the bundle, see `security.yml`).
 
 ### 2.4 Distribution by vendoring
 
@@ -118,21 +128,26 @@ exceed the 50 MB cap.
 Quitting Claude Desktop also ends the Code tab session whose Bash tool is
 running the script, so the relaunch cannot come from that shell. The script
 submits a one-off launchd job (`launchctl submit`) that waits for the Claude
-process to exit, reopens the app by bundle id, and removes itself; only then
-does it ask Claude to quit (via `osascript`, falling back to `SIGTERM`).
-Verified: the job runs after the submitting shell has exited. Not yet
-verified from a developer machine, and part of the fresh-account test: that it
-survives the app quitting, and that macOS asks no Automation permission for the
-quit. The documented fallback is Cmd+Q and reopen.
+process to exit (whichever copy of the app is running), reopens the app by
+bundle id, and removes itself; only then does it ask Claude to quit (via
+`osascript`, falling back to `SIGTERM`) and waits for the quit to land. If
+Claude is still running after 25 seconds the job is withdrawn and the script
+returns exit 3, so the person is told to quit and reopen by hand instead of
+being promised a restart that did not happen. Verified: the job runs after the
+submitting shell has exited. Not yet verified from a developer machine, and
+part of the fresh-account test: that it survives the app quitting, and that
+macOS asks no Automation permission for the quit.
 
 ### 2.7 What the skill pre-approves
 
 `allowed-tools` pre-approves only the read-only scripts (`preflight.sh`,
-`verify.sh`) and the copy into the plugin's own directory
-(`install-server.sh`). The Node download, the config edit, the restart, and
-uninstall each go through a permission prompt, with the skill explaining the
-step first. That is two or three prompts on a fresh Mac, each for something
-worth consenting to.
+`verify.sh`) and the copy into the connector's own folder in the home
+directory (`install-server.sh`), each as an exact, argument-free command: a
+prefix rule (`...sh"*`) would also pre-approve arbitrary arguments, and
+`verify.sh --config <any file>` would then start whatever command that file
+names. The Node download, the config edit, the restart, and uninstall each go
+through a permission prompt, with the skill explaining the step first. That is
+two or three prompts on a fresh Mac, each for something worth consenting to.
 
 ### 2.8 Rejected
 

@@ -15,11 +15,11 @@ ZMCP_PLUGIN_ROOT="$(cd "$ZMCP_SKILL_DIR/../.." && pwd -P)"
 ZMCP_HOME="${ZENDESK_MCP_HOME:-$HOME/.local/share/zendesk-mcp}"
 ZMCP_CONFIG="${ZENDESK_MCP_CLAUDE_CONFIG:-$HOME/Library/Application Support/Claude/claude_desktop_config.json}"
 ZMCP_SUBDOMAIN="${ZENDESK_MCP_SUBDOMAIN:-measurablhelp}"
-# Where the server keeps its OAuth token (see token-persistence.ts in the server).
-ZMCP_TOKEN_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/fruggr/zendesk-mcp-server/${ZMCP_SUBDOMAIN}.json"
 # Where the old Confluence guide had people clone and build the server.
 ZMCP_OLD_GUIDE_CLONE="$HOME/dev/ai-zendesk-user-mcpserver"
 ZMCP_MIN_NODE_MAJOR=20
+# Claude Desktop's main executable, as `ps -o comm` prints it, wherever the app lives.
+ZMCP_CLAUDE_MAIN_RE='/Claude\.app/Contents/MacOS/Claude$'
 
 # Output conventions: `key=value` lines and short human sentences on stdout;
 # warnings and the single FAIL line on stderr. Every FAIL code has an entry in
@@ -33,73 +33,111 @@ fail() {
   exit 1
 }
 
-# The plugin's own version, read without jq or node (either may be missing).
-plugin_version() {
-  sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    "$ZMCP_PLUGIN_ROOT/.claude-plugin/plugin.json" | head -n 1
+# uninstall.sh and install-server.sh remove directories under ZMCP_HOME; refuse
+# an install root that would make that catastrophic.
+case "$ZMCP_HOME" in
+  "" | / | "$HOME" | "$HOME/") fail install-root-invalid "Refusing to use '$ZMCP_HOME' as the connector's folder." ;;
+esac
+
+# Reads a top-level "key": "value" string out of a small JSON file without jq
+# or node (either may be missing). Prints nothing when the file or key is
+# absent, so callers can fail with their own code instead of a raw sed error.
+json_string() {
+  sed -n "s/^[[:space:]]*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$1" 2>/dev/null | head -n 1 || true
 }
 
+plugin_version() { json_string "$ZMCP_PLUGIN_ROOT/.claude-plugin/plugin.json" version; }
+
+# Written by register.sh once the server is installed AND registered, so a
+# failed registration is retried by `update` instead of being reported as done.
 installed_version() { cat "$ZMCP_HOME/VERSION" 2>/dev/null || true; }
 
-# Major version of a Node binary, or nothing when it does not run.
-node_major() { "$1" -p 'process.versions.node.split(".")[0]' 2>/dev/null || true; }
+# The server's OAuth token file. The server derives the directory from its own
+# package name (`@fruggr/zendesk-mcp-server` -> `fruggr/zendesk-mcp-server`, see
+# src/auth/token-persistence.ts) under ~/.config: Claude Desktop starts it with
+# a minimal environment, so an XDG_CONFIG_HOME exported in a shell profile never
+# reaches it. The name is read from the bundled package.json so this cannot
+# drift from what ships. ZENDESK_MCP_TOKEN_FILE overrides for tests.
+token_file() {
+  local name scope pkg
+  name="$(json_string "$ZMCP_PLUGIN_ROOT/server/package.json" name)"
+  [ -n "$name" ] || name="@fruggr/zendesk-mcp-server"
+  case "$name" in
+    @*/*)
+      scope="${name%%/*}"
+      scope="${scope#@}"
+      pkg="${name#*/}"
+      printf '%s/.config/%s/%s/%s.json\n' "$HOME" "$scope" "$pkg" "$ZMCP_SUBDOMAIN"
+      ;;
+    *) printf '%s/.config/%s/%s.json\n' "$HOME" "$name" "$ZMCP_SUBDOMAIN" ;;
+  esac
+}
+ZMCP_TOKEN_FILE="${ZENDESK_MCP_TOKEN_FILE:-$(token_file)}"
+
+# `KEY=present|absent` for a path.
+presence() {
+  if [ -e "$2" ]; then say "$1=present"; else say "$1=absent"; fi
+}
+
+# Runs a Node binary the way Claude Desktop runs MCP servers: no PATH, no shell
+# profile, working directory /. A real Node answers with its version; a
+# version-manager shim (volta, fnm, asdf, mise, proto, nodenv...) that needs its
+# manager's environment does not, and is therefore never written into the config.
+node_version_bare() {
+  (cd / && env -i HOME="$HOME" "$1" -p 'process.version') 2>/dev/null || true
+}
+
+node_major_bare() {
+  local version
+  version="$(node_version_bare "$1")"
+  case "$version" in
+    v[0-9]*)
+      version="${version#v}"
+      printf '%s\n' "${version%%.*}"
+      ;;
+  esac
+}
 
 node_usable() {
   local major
-  major="$(node_major "$1")"
+  major="$(node_major_bare "$1")"
   [ -n "$major" ] && [ "$major" -ge "$ZMCP_MIN_NODE_MAJOR" ] 2>/dev/null
-}
-
-# A `node` on PATH may be a version-manager shim (volta, fnm, asdf) that only
-# works inside that manager's shell environment. Claude Desktop starts MCP
-# servers with a minimal environment, so such a path would break there.
-is_shim() {
-  case "$1" in
-    */.volta/* | */.asdf/shims/* | */fnm_multishells/* | */.local/share/fnm/*) return 0 ;;
-  esac
-  return 1
 }
 
 # The Node binary to run the server with, in order of preference: the private
 # copy this plugin installed, then stable system-wide locations, then PATH, then
-# the newest nvm install. Prints an absolute path; exits 1 when nothing usable
-# exists. register.sh and ensure-node.sh call this with the same order, so the
-# path written into the Claude config is the one that was checked.
+# the newest nvm install (judged by directory name; only candidates in that
+# order are executed). Prints an absolute path; exits 1 when nothing usable
+# exists. register.sh and ensure-node.sh both call this, so the path written
+# into the Claude config is the one that was checked.
 find_node() {
-  local candidate best="" best_major=0 major
+  local candidate version
   for candidate in "$ZMCP_HOME/node/bin/node" /opt/homebrew/bin/node /usr/local/bin/node; do
     if [ -x "$candidate" ] && node_usable "$candidate"; then
       say "$candidate"
       return 0
     fi
   done
-  if candidate="$(command -v node 2>/dev/null)" && [ -n "$candidate" ] && ! is_shim "$candidate" && node_usable "$candidate"; then
+  if candidate="$(command -v node 2>/dev/null)" && [ -n "$candidate" ] && node_usable "$candidate"; then
     say "$candidate"
     return 0
   fi
-  for candidate in "$HOME"/.nvm/versions/node/*/bin/node; do
-    [ -x "$candidate" ] || continue
-    major="$(node_major "$candidate")"
-    if [ -n "$major" ] && [ "$major" -ge "$ZMCP_MIN_NODE_MAJOR" ] && [ "$major" -gt "$best_major" ]; then
-      best="$candidate"
-      best_major="$major"
-    fi
-  done
-  if [ -n "$best" ]; then
-    say "$best"
-    return 0
-  fi
-  return 1
-}
-
-# Claude Desktop's main executable, wherever the app was installed.
-claude_main_binary() {
-  local dir
-  for dir in /Applications "$HOME/Applications"; do
-    if [ -d "$dir/Claude.app" ]; then
-      say "$dir/Claude.app/Contents/MacOS/Claude"
+  for version in $(ls -d "$HOME"/.nvm/versions/node/v* 2>/dev/null | sed 's|.*/v||' | sort -t. -k1,1nr -k2,2nr -k3,3nr || true); do
+    candidate="$HOME/.nvm/versions/node/v$version/bin/node"
+    if [ -x "$candidate" ] && node_usable "$candidate"; then
+      say "$candidate"
       return 0
     fi
   done
   return 1
+}
+
+# PID of the running Claude Desktop main process (whichever copy is running).
+claude_main_pid() {
+  ps -axo pid=,comm= | sed -n "s|^ *\([0-9][0-9]*\) .*${ZMCP_CLAUDE_MAIN_RE}|\1|p" | head -n 1
+}
+
+# Whether Claude Desktop is installed at all (/Applications or ~/Applications).
+claude_app_installed() {
+  [ -d /Applications/Claude.app ] || [ -d "$HOME/Applications/Claude.app" ]
 }

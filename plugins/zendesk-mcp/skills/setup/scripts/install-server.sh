@@ -1,9 +1,9 @@
 #!/bin/bash
-# Copies the plugin's prebuilt server into $ZMCP_HOME/server and records the
-# version. The server is never run from inside the plugin directory, because
-# that path changes whenever the plugin updates. Idempotent: the copy is staged
-# beside the current one and swapped in, so a failed copy leaves the previous
-# install working.
+# Copies the plugin's prebuilt server into $ZMCP_HOME/server. The server is
+# never run from inside the plugin directory, because that path changes
+# whenever the plugin updates. Idempotent: the copy is staged beside the current
+# one and swapped in, so a failed copy leaves the previous install working.
+# The VERSION marker is written by register.sh, once the server is registered.
 . "$(dirname "$0")/lib.sh"
 
 src="$ZMCP_PLUGIN_ROOT/server"
@@ -23,8 +23,7 @@ if [ -d "$ZMCP_HOME/server" ]; then
 fi
 mv "$ZMCP_HOME/server.tmp" "$ZMCP_HOME/server"
 rm -rf "$ZMCP_HOME/server.old"
-printf '%s\n' "$version" >"$ZMCP_HOME/VERSION"
 
 say "SERVER=$ZMCP_HOME/server/index.js"
-say "INSTALLED_VERSION=$version"
+say "SERVER_VERSION=$version"
 say "INSTALL=ok"

@@ -42,9 +42,11 @@ jobs:
           # its third-party dependencies (see docs/decisions/plugin-distribution.md).
           # CodeQL already skips node_modules; bundling re-inlines that same
           # dependency code as first-party and reports its findings against this
-          # repository, without anything here being able to fix them. The
-          # dependencies stay covered by dependency review and pnpm audit, and
-          # src/ itself is scanned as before.
+          # repository, without anything here being able to fix them. src/ is
+          # scanned as before; the dependencies are covered by dependency review
+          # and pnpm audit through the lockfile, and the weekly run of
+          # bundle-fresh.yml on main reports when the committed bundle lags that
+          # lockfile, which is the case those two scans cannot see.
           config: |
             paths-ignore:
               - plugins/zendesk-mcp/server

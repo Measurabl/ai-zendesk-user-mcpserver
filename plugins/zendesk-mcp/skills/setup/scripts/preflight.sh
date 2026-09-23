@@ -25,7 +25,7 @@ say "OS=Darwin"
 say "ARCH=$arch"
 say "MACOS_VERSION=$(sw_vers -productVersion 2>/dev/null || echo unknown)"
 
-if claude_main_binary >/dev/null; then
+if claude_app_installed; then
   say "CLAUDE_APP=present"
 else
   say "CLAUDE_APP=missing"
@@ -56,24 +56,11 @@ if [ -f "$ZMCP_PLUGIN_ROOT/server/index.js" ] && [ -f "$ZMCP_PLUGIN_ROOT/server/
 else
   say "PLUGIN_SERVER_FILES=missing"
 fi
-if [ -f "$ZMCP_OLD_GUIDE_CLONE/dist/index.js" ]; then
-  say "OLD_GUIDE_CLONE=present"
-else
-  say "OLD_GUIDE_CLONE=absent"
-fi
-if [ -f "$ZMCP_TOKEN_FILE" ]; then
-  say "TOKEN_FILE=present"
-else
-  say "TOKEN_FILE=absent"
-fi
-if [ -f "$HOME/.claude.json" ] && grep -q '"zendesk"' "$HOME/.claude.json" 2>/dev/null; then
-  say "CLAUDE_CODE_CONFIG_MENTIONS_ZENDESK=yes"
-else
-  say "CLAUDE_CODE_CONFIG_MENTIONS_ZENDESK=no"
-fi
+presence OLD_GUIDE_CLONE "$ZMCP_OLD_GUIDE_CLONE"
+presence TOKEN_FILE "$ZMCP_TOKEN_FILE"
 if node_path="$(find_node)"; then
   say "NODE_FOUND=$node_path"
-  say "NODE_VERSION=$("$node_path" -p process.version)"
+  say "NODE_VERSION=$(node_version_bare "$node_path")"
 else
   say "NODE_FOUND=none"
 fi

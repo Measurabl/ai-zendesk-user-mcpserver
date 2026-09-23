@@ -1,19 +1,11 @@
 #!/bin/bash
-# Brings the installed server up to the plugin's version: when the plugin is
-# newer than the installed copy, re-runs the install and register steps. Prints
-# STATUS=not-installed|up-to-date|updated|installed-is-newer and RESTART_NEEDED.
+# Brings the installed connector in line with the plugin: when the recorded
+# version differs from the plugin's, the server is copied and registered again
+# (both steps are idempotent, and register.sh records the version only after it
+# succeeded, so a failed registration is retried next time). The plugin is the
+# source of truth: whatever the organization ships is what should be installed.
+# Prints STATUS=not-installed|up-to-date|updated.
 . "$(dirname "$0")/lib.sh"
-
-# YYYY.M.D[+N] as one sortable integer: 2026.9.23+1 -> 20260923001.
-version_number() {
-  local v="$1" base build y m d
-  base="${v%%+*}"
-  if [ "$base" = "$v" ]; then build=0; else build="${v#*+}"; fi
-  IFS=. read -r y m d <<EOF
-$base
-EOF
-  printf '%04d%02d%02d%03d\n' "${y:-0}" "${m:-0}" "${d:-0}" "${build:-0}" 2>/dev/null || printf '0\n'
-}
 
 installed="$(installed_version)"
 target="$(plugin_version)"
@@ -25,19 +17,10 @@ if [ -z "$installed" ]; then
   say "Nothing is installed yet. Run /zendesk-mcp:setup install instead."
   exit 0
 fi
-
-have="$(version_number "$installed")"
-want="$(version_number "$target")"
-if [ "$want" -gt "$have" ]; then
-  bash "$ZMCP_SCRIPT_DIR/install-server.sh"
-  bash "$ZMCP_SCRIPT_DIR/register.sh"
-  say "STATUS=updated"
-  say "RESTART_NEEDED=yes"
-elif [ "$want" -eq "$have" ]; then
+if [ "$installed" = "$target" ]; then
   say "STATUS=up-to-date"
-  say "RESTART_NEEDED=no"
-else
-  warn "The installed copy ($installed) is newer than this plugin ($target); leaving it alone."
-  say "STATUS=installed-is-newer"
-  say "RESTART_NEEDED=no"
+  exit 0
 fi
+bash "$ZMCP_SCRIPT_DIR/install-server.sh"
+bash "$ZMCP_SCRIPT_DIR/register.sh"
+say "STATUS=updated"

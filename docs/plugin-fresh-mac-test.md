@@ -68,7 +68,8 @@ macOS dialog, and anything Claude said that a non-engineer would not understand.
 13. Quit and reopen Claude; in a new chat ask the ticket question. Expected:
     Claude no longer has the connector.
 14. Finder → Go to Folder: confirm `~/.local/share/zendesk-mcp` and
-    `~/.config/fruggr` are gone, and that
+    `~/.config/fruggr` are gone (the token folders are removed when nothing
+    else is in them), and that
     `~/Library/Application Support/Claude/` contains a
     `claude_desktop_config.json.zendesk-mcp-backup-…` file per config change.
 
@@ -89,6 +90,7 @@ Please send back, in this order:
 
 | Item | Result |
 | --- | --- |
+| Mac type (Apple silicon or Intel) and macOS version | |
 | Install preference used ("Installed by default" or self-installed from the catalog) | |
 | `server/index.js` was present in the synced plugin (preflight did not stop with `plugin-incomplete`) | |
 | Number of approval prompts during install | |

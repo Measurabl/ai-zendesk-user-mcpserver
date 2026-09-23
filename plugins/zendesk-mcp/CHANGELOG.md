@@ -10,7 +10,7 @@ at the commit that cut the release; its own history is the repository's
 
 First release.
 
-- `/zendesk-mcp:setup` with the modes `install` (default), `verify`, `update`
+- `/zendesk-mcp:setup` with the modes `install` (default), `verify`, `update`,
   and `uninstall`, for the Claude Desktop Code tab on macOS.
 - Bundled server: this repository's `src/` (upstream `@fruggr/zendesk-mcp-server`
   2.18.0 plus Measurabl's OAuth loopback and state fixes), one self-contained

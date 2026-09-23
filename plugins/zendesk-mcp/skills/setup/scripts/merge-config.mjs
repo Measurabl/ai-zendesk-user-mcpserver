@@ -3,24 +3,26 @@
 // it. Everything else in the file is preserved. Before any write the current
 // file is backed up beside itself, and the new content is written to a
 // temporary file and renamed into place, so a crash cannot leave a half-written
-// config. A file that is not valid JSON is never touched.
+// config. A file that cannot be read or is not valid JSON is never touched.
 //
 //   node merge-config.mjs --node <abs node> --server <abs server/index.js> \
 //        [--subdomain measurablhelp] [--config <path>] [--dry-run]
 //   node merge-config.mjs --remove [--config <path>] [--dry-run]
 //
-// Output (stdout, one `key=value` per line): CONFIG, FILE=existing|created,
-// PREVIOUS=none|same|old-guide|other, CLAUDE_CODE_ENTRY=present|absent,
-// BACKUP=<path> when one was made, RESULT=written|removed|unchanged (or
-// DRY_RUN=1 with RESULT=would-write|would-remove). Failures print one
-// `FAIL: <code> <message>` line on stderr and exit 1. Run through register.sh
-// or uninstall.sh, which resolve a Node binary for this script.
+// Output (stdout, one `key=value` per line): CONFIG; when registering,
+// PREVIOUS=none|same|old-guide|other and CLAUDE_CODE_ENTRY=present|absent;
+// then either RESULT=unchanged, or DRY_RUN=1 with RESULT=would-write|would-remove,
+// or BACKUP=<path> (when a file existed), FILE=existing|created and
+// RESULT=written|removed. Failures print one `FAIL: <code> <message>` line on
+// stderr and exit 1. Run through register.sh or uninstall.sh, which resolve a
+// Node binary for this script.
 import {
   chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   writeFileSync,
 } from 'node:fs';
@@ -49,16 +51,28 @@ export const buildEntry = ({ node, server, subdomain = DEFAULT_SUBDOMAIN }) => (
   args: [server, subdomain, '--mode', 'single'],
 });
 
+// Same connector if it starts the same way. Key order and extra keys such as
+// `env` do not matter, and an entry judged `same` is left exactly as it is.
+const sameLaunch = (existing, wanted) =>
+  isPlainObject(existing) &&
+  existing.command === wanted.command &&
+  Array.isArray(existing.args) &&
+  existing.args.length === wanted.args.length &&
+  existing.args.every((arg, index) => arg === wanted.args[index]);
+
 /** What an existing `zendesk` entry is, so the skill can tell the person what it replaced. */
 export const classifyEntry = (existing, wanted) => {
   if (existing === undefined) return 'none';
-  if (JSON.stringify(existing) === JSON.stringify(wanted)) return 'same';
+  if (sameLaunch(existing, wanted)) return 'same';
   const args = isPlainObject(existing) && Array.isArray(existing.args) ? existing.args : [];
   if (args.some((arg) => typeof arg === 'string' && arg.includes(OLD_GUIDE_MARKER))) {
     return 'old-guide';
   }
   return 'other';
 };
+
+const configError = (code, message, cause) =>
+  Object.assign(new Error(message, cause === undefined ? undefined : { cause }), { code });
 
 /** Parses the config file's text; an empty file is an empty config. Throws with a plain message otherwise. */
 export const parseConfigText = (text) => {
@@ -67,23 +81,41 @@ export const parseConfigText = (text) => {
   try {
     parsed = JSON.parse(text);
   } catch (error) {
-    throw new Error(
+    throw configError(
+      'config-invalid-json',
       'The Claude Desktop config file is not valid JSON, so it was left untouched. Open it (Claude > Settings > Developer > Edit Config), fix or remove the broken part, then run the setup again.',
-      { cause: error },
+      error,
     );
   }
   if (!isPlainObject(parsed)) {
-    throw new Error(
+    throw configError(
+      'config-invalid-json',
       'The Claude Desktop config file must contain a JSON object at the top level; it was left untouched.',
     );
   }
   return parsed;
 };
 
+const readConfig = (path) => {
+  if (!existsSync(path)) return {};
+  let text;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (error) {
+    throw configError(
+      'config-unreadable',
+      `The Claude Desktop config file at ${path} could not be read (${error.code ?? error.message}). Nothing was changed.`,
+      error,
+    );
+  }
+  return parseConfigText(text);
+};
+
 const serversOf = (config) => {
   const servers = config.mcpServers ?? {};
   if (!isPlainObject(servers)) {
-    throw new Error(
+    throw configError(
+      'config-invalid-json',
       'The "mcpServers" entry in the Claude Desktop config is not an object, so the file was left untouched.',
     );
   }
@@ -143,17 +175,28 @@ const failWith = (code, message) => {
   process.exit(1);
 };
 
+const readArguments = () => {
+  try {
+    return parseArgs({
+      options: {
+        config: { type: 'string' },
+        node: { type: 'string' },
+        server: { type: 'string' },
+        subdomain: { type: 'string' },
+        remove: { type: 'boolean' },
+        'dry-run': { type: 'boolean' },
+      },
+    }).values;
+  } catch (error) {
+    return failWith(
+      'bad-arguments',
+      `${error.message}. Run this step through the skill, without extra options.`,
+    );
+  }
+};
+
 const main = () => {
-  const { values } = parseArgs({
-    options: {
-      config: { type: 'string' },
-      node: { type: 'string' },
-      server: { type: 'string' },
-      subdomain: { type: 'string' },
-      remove: { type: 'boolean' },
-      'dry-run': { type: 'boolean' },
-    },
-  });
+  const values = readArguments();
   if (!values.remove && !(values.node && values.server)) {
     failWith(
       'missing-arguments',
@@ -163,9 +206,10 @@ const main = () => {
 
   const configPath = values.config ?? defaultConfigPath();
   const exists = existsSync(configPath);
+  console.log(`CONFIG=${configPath}`);
   let result;
   try {
-    const config = parseConfigText(exists ? readFileSync(configPath, 'utf8') : '');
+    const config = readConfig(configPath);
     if (values.remove) {
       result = removeEntry(config);
     } else {
@@ -176,14 +220,11 @@ const main = () => {
       });
       result = mergeConfig(config, entry);
       console.log(`PREVIOUS=${result.previous}`);
+      console.log(`CLAUDE_CODE_ENTRY=${claudeCodeHasEntry() ? 'present' : 'absent'}`);
     }
   } catch (error) {
-    failWith('config-invalid-json', error.message);
+    failWith(error.code ?? 'config-invalid-json', error.message);
   }
-
-  console.log(`CONFIG=${configPath}`);
-  console.log(`FILE=${exists ? 'existing' : 'created'}`);
-  console.log(`CLAUDE_CODE_ENTRY=${claudeCodeHasEntry() ? 'present' : 'absent'}`);
 
   if (!result.changed) {
     console.log('RESULT=unchanged');
@@ -204,8 +245,18 @@ const main = () => {
   } catch (error) {
     failWith('config-write-failed', `could not write ${configPath}: ${error.message}`);
   }
+  console.log(`FILE=${exists ? 'existing' : 'created'}`);
   console.log(`RESULT=${values.remove ? 'removed' : 'written'}`);
 };
 
-// Only act when run directly, not when imported by a test.
-if (process.argv[1] === fileURLToPath(import.meta.url)) main();
+// Only act when run directly, not when imported by verify.mjs or a test. Real
+// paths on both sides: argv[1] keeps any symlink (/tmp -> /private/tmp) that
+// import.meta.url has already resolved.
+const runDirectly = () => {
+  try {
+    return realpathSync(process.argv[1] ?? '') === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+};
+if (runDirectly()) main();

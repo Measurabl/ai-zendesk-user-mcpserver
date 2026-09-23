@@ -13,8 +13,9 @@ permissions:
   contents: read
 
 jobs:
-  require-version-bump:
-    name: Require plugin version bump
+  plugin-version:
+    # The job name is what a required-status-check rule on main refers to.
+    name: Plugin version
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -31,7 +32,10 @@ jobs:
           set -euo pipefail
           MANIFEST='plugins/zendesk-mcp/.claude-plugin/plugin.json'
           WATCHED='plugins/zendesk-mcp'
-          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- "$WATCHED")"
+          # Three-dot: only what this PR changed since it branched. A two-dot diff
+          # would list the whole plugin as "changed" on a branch that mirrors
+          # upstream (the weekly upstream-sync PR has no plugins/ at all).
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" -- "$WATCHED")"
           if [ -z "$changed" ]; then
             echo "No changes under $WATCHED; a version bump is not required."
             exit 0
@@ -45,7 +49,7 @@ jobs:
           base_json="$(manifest_at "$BASE_SHA")"
           head_json="$(manifest_at "$HEAD_SHA")"
           if [ -z "$head_json" ]; then
-            echo "::error file=$MANIFEST::$MANIFEST is missing but plugin content changed."
+            echo "::error file=$MANIFEST::$MANIFEST is missing on this branch but plugin content changed."
             exit 1
           fi
           head_version="$(version_in "$head_json")"

@@ -1,9 +1,9 @@
 ---
 name: setup
-description: Set up, check, update, or remove the Measurabl Zendesk connector for Claude on this Mac. Only works in the Claude Desktop Code tab on a Mac. Installs a local copy of the Zendesk MCP server, registers it with Claude Desktop and restarts Claude; each person then signs in through Measurabl SSO (Okta) on first use. Run it as /zendesk-mcp:setup followed by install (default), verify, update or uninstall.
+description: Set up, check, update, or remove the Measurabl Zendesk connector for Claude on this Mac. Only works in the Claude Desktop Code tab on a Mac. Installs a local copy of the Zendesk MCP server, registers it with Claude Desktop, and restarts Claude; each person then signs in through Measurabl SSO (Okta) on first use. Run it as /zendesk-mcp:setup followed by install (default), verify, update, or uninstall.
 argument-hint: "[install|verify|update|uninstall]"
 disable-model-invocation: true
-allowed-tools: 'Bash(bash "${CLAUDE_SKILL_DIR}/scripts/preflight.sh"*) Bash(bash "${CLAUDE_SKILL_DIR}/scripts/verify.sh"*) Bash(bash "${CLAUDE_SKILL_DIR}/scripts/install-server.sh"*)'
+allowed-tools: 'Bash(bash "${CLAUDE_SKILL_DIR}/scripts/preflight.sh") Bash(bash "${CLAUDE_SKILL_DIR}/scripts/verify.sh") Bash(bash "${CLAUDE_SKILL_DIR}/scripts/install-server.sh")'
 ---
 
 # Zendesk connector setup
@@ -12,22 +12,25 @@ You are helping a Measurabl colleague, usually an account executive rather than
 an engineer, connect Claude to Zendesk on their Mac. Everything happens through
 the scripts in this skill. Speak plainly. Before each step that needs their
 approval, say in one or two sentences what is about to happen and why. Keep
-messages short, and do not show shell commands, file paths or error codes
+messages short, and do not show shell commands, file paths, or error codes
 unless the person has to act on them.
 
 ## Mode
 
 Requested mode: `$0`
 
-If the line above shows one of the words `install`, `verify`, `update` or
+If the line above shows one of the words `install`, `verify`, `update`, or
 `uninstall`, that is the mode. If it shows a dollar sign followed by a zero, or
 nothing at all, no mode was typed: run **install**. Any other word: list the
 four modes and stop.
 
 ## Rules
 
-- Run every script exactly like this, quoted, with `bash` in front:
-  `bash "${CLAUDE_SKILL_DIR}/scripts/<name>.sh"`. Never `cd` first, never `./`.
+- Run every script exactly like this, quoted, with `bash` in front and nothing
+  after the closing quote: `bash "${CLAUDE_SKILL_DIR}/scripts/<name>.sh"`.
+  Never `cd` first, never `./`, never add options (the two exceptions are named
+  below). The three read-only-or-local scripts are pre-approved in exactly that
+  form; anything else asks the person for approval.
 - Use only these scripts, in the order given. Do not improvise with `python3`,
   `git`, `jq`, `brew`, `npm`, `sudo`, or by editing files yourself. The scripts
   do everything that is needed; anything else may trigger installer prompts on
@@ -68,13 +71,14 @@ against its published checksum. Nothing is installed system-wide and no
 password is needed."
 
 Run `bash "${CLAUDE_SKILL_DIR}/scripts/ensure-node.sh"`. `NODE_SOURCE=existing`
-means the Mac already had a usable Node.js; `downloaded` means the private copy
-was just installed.
+means the Mac already had a usable Node.js, `private` means the copy this
+plugin installed earlier is being reused, and `downloaded` means the private
+copy was just installed.
 
 ### 3. Install the connector
 
 Run `bash "${CLAUDE_SKILL_DIR}/scripts/install-server.sh"`. It copies the
-prebuilt server into a folder in their home directory and records the version.
+prebuilt server into a folder in their home directory.
 
 ### 4. Register with Claude Desktop
 
@@ -90,6 +94,7 @@ Run `bash "${CLAUDE_SKILL_DIR}/scripts/register.sh"`. Read `PREVIOUS=`:
 `BACKUP=` still holds it (tell them); `same` means it was already set up.
 If `CLAUDE_CODE_ENTRY=present`, mention once that an older Claude Code entry
 also exists, that Claude uses the Desktop one, and that it can be ignored.
+`INSTALLED_VERSION=` confirms the install is complete.
 
 ### 5. Before the restart, tell them what happens next
 
@@ -108,18 +113,21 @@ Say all of this before running anything else:
 ### 6. Restart Claude
 
 Run `bash "${CLAUDE_SKILL_DIR}/scripts/restart-claude.sh"`. When it succeeds
-you will not get another turn, which is why step 5 comes first. Exit code 3
-(`RESTART=manual`) means the automatic relaunch could not be scheduled: ask
-them to quit Claude with Cmd+Q and open it again themselves.
+you will not get another turn, which is why step 5 comes first. If you do get
+a turn back with exit code 3 (`RESTART=manual`), the restart could not be
+completed automatically: the installation is complete, and the person should
+quit Claude with Cmd+Q and open it again themselves.
 
 ## verify
 
-Run `bash "${CLAUDE_SKILL_DIR}/scripts/verify.sh"`. Report each `PASS` or
-`FAIL` line in plain words. The checks are: the Claude Desktop settings entry,
-the installed files, the Node.js it uses, and a real start of the connector.
-A full pass means the connector starts correctly. It does not test the Zendesk
-sign-in; for that, they ask the open-tickets question in a chat. On any
-`FAIL`, use troubleshooting.
+Run `bash "${CLAUDE_SKILL_DIR}/scripts/verify.sh"`. It prints one `PASS` or
+`FAIL` line per check: `config-file` and `config-entry` (the Claude Desktop
+settings), `installed-files`, `node-binary` (the Node.js the entry uses, run
+the way Claude Desktop runs it), and `mcp-handshake` (a real start of the
+connector). Report each in plain words. A full pass means the connector starts
+correctly; it does not test the Zendesk sign-in, which they test by asking the
+open-tickets question in a chat. On any `FAIL` line, the check's name is the
+code to look up in troubleshooting.
 
 ## update
 
@@ -138,7 +146,8 @@ Run `bash "${CLAUDE_SKILL_DIR}/scripts/uninstall.sh"`.
 Then read `TOKEN_FILE_STATUS=`. If `present`, explain that the file holding
 their Zendesk sign-in is still on disk (the path is in `TOKEN_FILE=`) and that
 keeping it means no new sign-in if they reinstall. Only if they want it gone,
-run `bash "${CLAUDE_SKILL_DIR}/scripts/uninstall.sh" --tokens`.
+run `bash "${CLAUDE_SKILL_DIR}/scripts/uninstall.sh" --tokens` (the one option
+this skill ever adds; it asks for approval).
 If `OLD_GUIDE_CLONE=present`, mention that the old `~/dev` folder from the
 manual guide can be deleted in Finder. Finally ask them to quit and reopen
 Claude so it stops looking for the connector.

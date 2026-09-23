@@ -1,16 +1,18 @@
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildEntry,
   classifyEntry,
@@ -54,8 +56,10 @@ describe('classifyEntry', () => {
     expect(classifyEntry(undefined, entry)).toBe('none');
   });
 
-  it('is same when the entry already matches exactly', () => {
+  it('is same when the entry starts the connector the same way, whatever the key order or extra keys', () => {
     expect(classifyEntry(structuredClone(entry), entry)).toBe('same');
+    expect(classifyEntry({ args: [...entry.args], command: entry.command }, entry)).toBe('same');
+    expect(classifyEntry({ ...entry, env: { LOG_LEVEL: 'debug' } }, entry)).toBe('same');
   });
 
   it('recognises the old-guide clone by its dist/index.js path', () => {
@@ -147,7 +151,15 @@ describe('parseConfigText', () => {
 describe('merge-config.mjs as a command', () => {
   const run = (args: string[]) =>
     spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8' });
-  const scratch = () => mkdtempSync(join(tmpdir(), 'zmcp-merge-'));
+  const created: string[] = [];
+  const scratch = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'zmcp-merge-'));
+    created.push(dir);
+    return dir;
+  };
+  afterEach(() => {
+    for (const dir of created.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
   const backupsIn = (dir: string) =>
     readdirSync(dir).filter((name) => name.includes('.zendesk-mcp-backup-'));
 
@@ -251,6 +263,36 @@ describe('merge-config.mjs as a command', () => {
     expect(result.stdout).toMatch(/^PREVIOUS=old-guide$/m);
     expect(readFileSync(config, 'utf8')).toBe(before);
     expect(backupsIn(dir)).toHaveLength(0);
+  });
+
+  it('reports an unreadable config (a directory in its place) as unreadable, not as invalid JSON', () => {
+    const dir = scratch();
+    const config = join(dir, 'claude_desktop_config.json');
+    mkdirSync(config);
+
+    const result = run(['--config', config, '--node', NODE, '--server', SERVER]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^FAIL: config-unreadable /m);
+    expect(backupsIn(dir)).toHaveLength(0);
+  });
+
+  it('rejects unknown options with a FAIL line instead of a stack trace', () => {
+    const dir = scratch();
+    const result = run(['--config', join(dir, 'claude_desktop_config.json'), '--bogus']);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^FAIL: bad-arguments /m);
+    expect(result.stderr).not.toMatch(/node:internal/);
+  });
+
+  it('--remove on a missing file changes nothing and creates nothing', () => {
+    const dir = scratch();
+    const config = join(dir, 'claude_desktop_config.json');
+    const result = run(['--config', config, '--remove']);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^RESULT=unchanged$/m);
+    expect(result.stdout).not.toMatch(/^FILE=/m);
+    expect(existsSync(config)).toBe(false);
   });
 
   it('refuses to register without the node and server paths', () => {

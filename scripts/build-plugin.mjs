@@ -16,7 +16,7 @@
 // Deterministic by construction: the same lockfile and sources give the same
 // bytes, so .github/workflows/bundle-fresh.yml can rebuild every PR and diff.
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -26,7 +26,6 @@ const pluginDir = join(root, 'plugins', 'zendesk-mcp');
 const paths = {
   entry: join(root, 'src', 'index.ts'),
   manifest: join(pluginDir, '.claude-plugin', 'plugin.json'),
-  marketplace: join(root, '.claude-plugin', 'marketplace.json'),
   serverDir: join(pluginDir, 'server'),
   bundle: join(pluginDir, 'server', 'index.js'),
   runtimePackage: join(pluginDir, 'server', 'package.json'),
@@ -93,8 +92,10 @@ const readManifestVersion = () => {
   return manifest.version;
 };
 
-// A targeted text replacement rather than JSON.parse/stringify, so the two
-// manifests keep the formatting Biome gives them (single-line arrays etc.).
+// A targeted text replacement rather than JSON.parse/stringify, so the manifest
+// keeps the formatting Biome gives it (single-line arrays etc.). The development
+// marketplace entry carries no version: plugin.json's value always wins, and the
+// docs advise against setting both.
 const replaceVersion = (path, from, to) => {
   const text = readFileSync(path, 'utf8');
   const needle = `"version": "${from}"`;
@@ -111,7 +112,6 @@ const bump = () => {
   const from = readManifestVersion();
   const to = nextVersion(from);
   replaceVersion(paths.manifest, from, to);
-  replaceVersion(paths.marketplace, from, to);
   console.error(`[build-plugin] plugin version ${from} -> ${to}`);
   return to;
 };
@@ -129,7 +129,9 @@ const bundle = async (version) => {
     format: 'esm',
     target: NODE_TARGET,
     banner: { js: BANNER },
-    // Readable output: the bundle is reviewed in PRs and debugged from AE Macs.
+    // Not minified: the file is searched and debugged on AE Macs. Review of the
+    // bundle in PRs is by provenance (bundle-fresh.yml rebuilds and compares),
+    // not line by line.
     minify: false,
     sourcemap: false,
     legalComments: 'none',
@@ -145,8 +147,17 @@ const bundle = async (version) => {
   console.error(`[build-plugin] ${relative(root, paths.runtimePackage)}: version ${version}`);
 };
 
-// Only act when run directly, not when imported by a test.
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Only act when run directly, not when imported by a test. Real paths on both
+// sides: argv[1] keeps any symlink (/tmp -> /private/tmp) that import.meta.url
+// has already resolved.
+const runDirectly = () => {
+  try {
+    return realpathSync(process.argv[1] ?? '') === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+};
+if (runDirectly()) {
   const args = process.argv.slice(2);
   const unknown = args.filter((arg) => arg !== '--bump');
   if (unknown.length > 0) {

@@ -1,45 +1,70 @@
 #!/usr/bin/env node
 // Checks an installed Zendesk connector without touching Zendesk: the Claude
 // Desktop config entry, the installed files, the Node binary, and a real MCP
-// handshake (initialize + tools/list over stdio) against the installed server.
-// Neither request needs a Zendesk sign-in, so this never opens a browser.
-// resources/list is deliberately not sent: it would call Zendesk.
+// handshake (initialize + tools/list over stdio) against the installed server,
+// started the way Claude Desktop starts it (minimal environment, no shell
+// profile). Neither request needs a Zendesk sign-in, so this never opens a
+// browser. resources/list is deliberately not sent: it would call Zendesk.
 //
-//   node verify.mjs --config <claude_desktop_config.json> --home <install root> [--timeout-ms 15000]
+//   node verify.mjs --config <claude_desktop_config.json> --home <install root>
+//                   [--subdomain measurablhelp] [--min-node 20]
 //
 // Prints one `PASS <check>: <detail>` or `FAIL <check>: <detail>` line per
-// check and a final `SUMMARY=pass|fail`; exits non-zero when anything failed.
-// Run through verify.sh, which resolves a Node binary for this script.
+// check and `SUMMARY=pass|fail`; when anything failed it also prints
+// `FAIL: verify-failed <checks>` on stderr and exits 1. Run through verify.sh,
+// which resolves a Node binary for this script.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { buildEntry, DEFAULT_SUBDOMAIN, SERVER_KEY } from './merge-config.mjs';
 
-const SERVER_KEY = 'zendesk';
-const MIN_NODE_MAJOR = 20;
+// In `--mode single` the server registers exactly one tool, named like the
+// config key (src/server.ts). Kept as its own constant: they coincide, they
+// are not the same thing.
+const SINGLE_MODE_TOOL = 'zendesk';
 const PROTOCOL_VERSION = '2025-03-26';
+const TIMEOUT_MS = 15_000;
 
-const { values } = parseArgs({
-  options: {
-    config: { type: 'string' },
-    home: { type: 'string' },
-    'timeout-ms': { type: 'string' },
-  },
-});
-const timeoutMs = Number(values['timeout-ms'] ?? '15000');
+const failHard = (code, message) => {
+  console.error(`FAIL: ${code} ${message}`);
+  process.exit(1);
+};
+
+let values;
+try {
+  values = parseArgs({
+    options: {
+      config: { type: 'string' },
+      home: { type: 'string' },
+      subdomain: { type: 'string' },
+      'min-node': { type: 'string' },
+    },
+  }).values;
+} catch (error) {
+  failHard(
+    'bad-arguments',
+    `${error.message}. Run this step through the skill, without extra options.`,
+  );
+}
+const subdomain = values.subdomain ?? DEFAULT_SUBDOMAIN;
+const minNodeMajor = Number(values['min-node'] ?? '20');
 
 const outcomes = [];
+const failed = [];
 const pass = (check, detail) => {
   outcomes.push(true);
   console.log(`PASS ${check}: ${detail}`);
 };
 const fail = (check, detail) => {
   outcomes.push(false);
+  failed.push(check);
   console.log(`FAIL ${check}: ${detail}`);
 };
 const finish = () => {
   const ok = outcomes.every(Boolean);
   console.log(`SUMMARY=${ok ? 'pass' : 'fail'}`);
+  if (!ok) console.error(`FAIL: verify-failed ${failed.join(', ')}`);
   process.exit(ok ? 0 : 1);
 };
 
@@ -77,9 +102,13 @@ const readEntry = () => {
     !args[0].endsWith('/server/index.js')
   ) {
     problems.push('first argument is not an absolute path to server/index.js');
+  } else {
+    // The rest of the arguments must be exactly what register.sh writes.
+    const expected = buildEntry({ node: entry.command, server: args[0], subdomain }).args;
+    if (args.length !== expected.length || !expected.every((arg, index) => args[index] === arg)) {
+      problems.push(`arguments are ${JSON.stringify(args)}, expected ${JSON.stringify(expected)}`);
+    }
   }
-  const modeIndex = args.indexOf('--mode');
-  if (modeIndex < 0 || args[modeIndex + 1] !== 'single') problems.push('missing "--mode single"');
   if (problems.length > 0) {
     fail('config-entry', problems.join('; '));
     return undefined;
@@ -104,20 +133,38 @@ const checkFiles = (entry) => {
   return true;
 };
 
+// What Claude Desktop hands an MCP server: no shell profile, no PATH beyond the
+// system directories. A version-manager shim, or a profile-exported PORT or
+// TRANSPORT, would make the connector behave differently here than there.
+const bareEnvironment = () => {
+  const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LOG_LEVEL: 'error' };
+  for (const key of ['HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG']) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  return env;
+};
+
 const checkNode = (entry) => {
   if (!existsSync(entry.command)) {
     fail('node-binary', `${entry.command} does not exist`);
     return false;
   }
-  const probe = spawnSync(entry.command, ['-p', 'process.versions.node'], { encoding: 'utf8' });
+  const probe = spawnSync(entry.command, ['-p', 'process.versions.node'], {
+    encoding: 'utf8',
+    env: bareEnvironment(),
+    cwd: '/',
+  });
   const version = probe.status === 0 ? probe.stdout.trim() : '';
   const major = Number(version.split('.')[0]);
   if (!version || Number.isNaN(major)) {
-    fail('node-binary', `${entry.command} did not run (${probe.stderr.trim() || 'no output'})`);
+    fail(
+      'node-binary',
+      `${entry.command} did not run outside a shell (${probe.stderr.trim() || 'no output'})`,
+    );
     return false;
   }
-  if (major < MIN_NODE_MAJOR) {
-    fail('node-binary', `Node ${version} is older than the required ${MIN_NODE_MAJOR}`);
+  if (major < minNodeMajor) {
+    fail('node-binary', `Node ${version} is older than the required ${minNodeMajor}`);
     return false;
   }
   pass('node-binary', `Node ${version} at ${entry.command}`);
@@ -130,7 +177,8 @@ const handshake = (entry) =>
   new Promise((resolve) => {
     const child = spawn(entry.command, entry.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, LOG_LEVEL: 'error' },
+      env: bareEnvironment(),
+      cwd: '/',
     });
     const pending = new Map();
     let buffered = '';
@@ -147,8 +195,8 @@ const handshake = (entry) =>
     };
     const stderrTail = () => (stderr.trim() ? ` (server said: ${stderr.trim().slice(-400)})` : '');
     const timer = setTimeout(
-      () => settle({ ok: false, detail: `no reply within ${timeoutMs} ms${stderrTail()}` }),
-      timeoutMs,
+      () => settle({ ok: false, detail: `no reply within ${TIMEOUT_MS} ms${stderrTail()}` }),
+      TIMEOUT_MS,
     );
 
     const send = (message) => child.stdin.write(`${JSON.stringify(message)}\n`);
@@ -184,8 +232,9 @@ const handshake = (entry) =>
       settle({ ok: false, detail: `could not start the server: ${error.message}` }),
     );
     child.on('exit', (code) => {
-      if (pending.size > 0)
+      if (pending.size > 0) {
         settle({ ok: false, detail: `server exited early (code ${code})${stderrTail()}` });
+      }
     });
 
     const run = async () => {
@@ -200,16 +249,16 @@ const handshake = (entry) =>
       send({ jsonrpc: '2.0', method: 'notifications/initialized' });
       const listed = await request(2, 'tools/list', {});
       const names = (listed.result?.tools ?? []).map((tool) => tool.name);
-      if (!names.includes(SERVER_KEY)) {
+      if (!names.includes(SINGLE_MODE_TOOL)) {
         return settle({
           ok: false,
-          detail: `expected the single "${SERVER_KEY}" tool, got: ${names.join(', ') || 'none'}`,
+          detail: `expected the single "${SINGLE_MODE_TOOL}" tool, got: ${names.join(', ') || 'none'}`,
         });
       }
       return settle({
         ok: true,
         detail:
-          `${info.name ?? 'server'} ${info.version ?? ''} answered initialize and lists the ${SERVER_KEY} tool`.trim(),
+          `${info.name ?? 'server'} ${info.version ?? ''} answered initialize and lists the ${SINGLE_MODE_TOOL} tool`.trim(),
       });
     };
     run().catch((error) => settle({ ok: false, detail: error.message }));

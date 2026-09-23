@@ -7,7 +7,9 @@
 if [ "${1:-}" = "--tokens" ]; then
   if [ -f "$ZMCP_TOKEN_FILE" ]; then
     rm -f "$ZMCP_TOKEN_FILE"
+    # The two directories the server created for it, if nothing else is in them.
     rmdir "$(dirname "$ZMCP_TOKEN_FILE")" 2>/dev/null || true
+    rmdir "$(dirname "$(dirname "$ZMCP_TOKEN_FILE")")" 2>/dev/null || true
     say "TOKENS=removed"
   else
     say "TOKENS=absent"
@@ -17,7 +19,7 @@ if [ "${1:-}" = "--tokens" ]; then
 fi
 
 # The config edit comes first: it needs Node, and the private Node lives in the
-# directory removed below.
+# directory removed below. merge-config.mjs prints its own FAIL line on error.
 if node_bin="$(find_node)"; then
   "$node_bin" "$ZMCP_SCRIPT_DIR/merge-config.mjs" --config "$ZMCP_CONFIG" --remove || exit 1
 else
@@ -32,15 +34,6 @@ else
   say "INSTALL_DIR=absent"
 fi
 say "TOKEN_FILE=$ZMCP_TOKEN_FILE"
-if [ -f "$ZMCP_TOKEN_FILE" ]; then
-  say "TOKEN_FILE_STATUS=present"
-else
-  say "TOKEN_FILE_STATUS=absent"
-fi
-if [ -d "$ZMCP_OLD_GUIDE_CLONE" ]; then
-  say "OLD_GUIDE_CLONE=present"
-else
-  say "OLD_GUIDE_CLONE=absent"
-fi
-say "RESTART_NEEDED=yes"
+presence TOKEN_FILE_STATUS "$ZMCP_TOKEN_FILE"
+presence OLD_GUIDE_CLONE "$ZMCP_OLD_GUIDE_CLONE"
 say "UNINSTALL=ok"
