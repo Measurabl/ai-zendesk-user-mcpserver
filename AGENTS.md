@@ -184,6 +184,23 @@ Before opening a PR, clear the **Submission quality bar** in
 [`CONTRIBUTING.md`](CONTRIBUTING.md#submission-quality-bar) (same bar for human
 and AI authors).
 
+## Claude Desktop plugin (Measurabl fork)
+
+`plugins/zendesk-mcp/` is a Claude plugin that installs this server for
+non-technical colleagues from the Claude Desktop Code tab. Its `server/` is a
+**committed esbuild bundle of `src/`**, regenerated with `pnpm build:plugin`.
+Any change under `src/` that should reach those users needs
+`pnpm build:plugin --bump` (rebuild plus date version bump) in the same PR; CI
+(`bundle-fresh.yml`, `plugin-version.yml`) fails a PR that changed `src/` or
+the plugin without it. Never hand-edit `server/`, and never change `src/` to
+suit the plugin: the bundle adapts to the server, not the other way round. The
+scripts under `skills/setup/scripts/` run on a fresh Mac: bash 3.2, no
+Homebrew, no `jq`/`python3`/`git`, invoked as `bash <path>` because the plugin
+sync drops executable bits. Distribution goes through
+`Measurabl/claude-org-management` (this repository is public); why, and every
+other constraint: `docs/decisions/plugin-distribution.md`. The plugin README is
+the user-facing doc; `docs/plugin-fresh-mac-test.md` is the manual test.
+
 ## Release workflow
 
 Fully automated via semantic-release on push to `main`; never hand-bump
