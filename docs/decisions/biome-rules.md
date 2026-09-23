@@ -38,11 +38,13 @@ hatch for a specific offender:
 
 | Path | Rule off | Why |
 | --- | --- | --- |
-| `tests/**`, `scripts/**` | `noExcessiveCognitiveComplexity` | Cognitive complexity counts nested callbacks, so a `describe`/`it` tree trips it structurally. |
-| `tests/**`, `scripts/**` | `useTopLevelRegex` | A regex recompiled in a test or a one-shot probe script has no hot path to slow down. |
+| `tests/**`, `scripts/**`, `plugins/**/scripts/**` | `noExcessiveCognitiveComplexity` | Cognitive complexity counts nested callbacks, so a `describe`/`it` tree trips it structurally. |
+| `tests/**`, `scripts/**`, `plugins/**/scripts/**` | `useTopLevelRegex` | A regex recompiled in a test or a one-shot probe script has no hot path to slow down. |
 | `**/*.config.ts` | `noDefaultExport` | `vitest.config.ts` and `tsdown.config.ts` legitimately default-export. |
 
-Don't widen either of the first two to `src/`.
+Don't widen either of the first two to `src/`. `plugins/**/scripts/**` holds
+the Claude Desktop plugin's setup scripts, which are operational tooling of the
+same kind as `scripts/**`.
 
 ## Off by policy
 

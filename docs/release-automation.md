@@ -173,7 +173,9 @@ These cannot be versioned; a repository (or org) admin must apply them **once**:
    Five of them, and re-creating the ruleset means re-creating all five:
    - Require a pull request before merging, squash the only allowed method,
      zero required approvals, conversation resolution required.
-   - Required status checks `build-and-test`, `Changed lines` and `CodeQL`, with
+   - Required status checks `build-and-test`, `Changed lines`, `CodeQL`,
+     `Plugin version`, and `Bundle fresh` (the last two guard the committed
+     Claude Desktop plugin bundle; see `plugins/zendesk-mcp/README.md`), with
      "require branches to be up to date" on. (Without the status-check rule,
      `platformAutomerge` would merge the PR before CI finishes; without the
      up-to-date policy, a PR behind `main` can auto-merge on stale green checks.)

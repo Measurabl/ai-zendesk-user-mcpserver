@@ -1,0 +1,271 @@
+#!/usr/bin/env node
+// Registers the Zendesk connector in Claude Desktop's config file, or removes
+// it. Everything else in the file is preserved. Before any write the current
+// file is backed up beside itself, and the new content is written to a
+// temporary file and renamed into place, so a crash cannot leave a half-written
+// config. A file that cannot be read or is not valid JSON is never touched.
+//
+//   node merge-config.mjs --node <abs node> --server <abs server/index.js> \
+//        [--subdomain measurablhelp] [--config <path>] [--dry-run]
+//   node merge-config.mjs --remove [--config <path>] [--dry-run]
+//
+// Output (stdout, one `key=value` per line): CONFIG; when registering,
+// PREVIOUS=none|same|old-guide|other and CLAUDE_CODE_ENTRY=present|absent;
+// then either RESULT=unchanged, or DRY_RUN=1 with RESULT=would-write|would-remove,
+// or BACKUP=<path> (when a file existed), FILE=existing|created and
+// RESULT=written|removed. Failures print one `FAIL: <code> <message>` line on
+// stderr and exit 1. Run through register.sh or uninstall.sh, which resolve a
+// Node binary for this script.
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+
+/** The key under `mcpServers`; the same one the old Confluence guide used. */
+export const SERVER_KEY = 'zendesk';
+export const DEFAULT_SUBDOMAIN = 'measurablhelp';
+// What the old guide's hand-written entry pointed at: a clone built under ~/dev.
+const OLD_GUIDE_MARKER = '/ai-zendesk-user-mcpserver/dist/index.js';
+
+export const defaultConfigPath = () =>
+  join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+
+const claudeCodeConfigPath = () => join(homedir(), '.claude.json');
+
+const isPlainObject = (value) =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The entry Claude Desktop needs: an absolute Node, the absolute bundle, single-tool mode. */
+export const buildEntry = ({ node, server, subdomain = DEFAULT_SUBDOMAIN }) => ({
+  command: node,
+  args: [server, subdomain, '--mode', 'single'],
+});
+
+// Same connector if it starts the same way. Key order and extra keys such as
+// `env` do not matter, and an entry judged `same` is left exactly as it is.
+const sameLaunch = (existing, wanted) =>
+  isPlainObject(existing) &&
+  existing.command === wanted.command &&
+  Array.isArray(existing.args) &&
+  existing.args.length === wanted.args.length &&
+  existing.args.every((arg, index) => arg === wanted.args[index]);
+
+/** What an existing `zendesk` entry is, so the skill can tell the person what it replaced. */
+export const classifyEntry = (existing, wanted) => {
+  if (existing === undefined) return 'none';
+  if (sameLaunch(existing, wanted)) return 'same';
+  const args = isPlainObject(existing) && Array.isArray(existing.args) ? existing.args : [];
+  if (args.some((arg) => typeof arg === 'string' && arg.includes(OLD_GUIDE_MARKER))) {
+    return 'old-guide';
+  }
+  return 'other';
+};
+
+const configError = (code, message, cause) =>
+  Object.assign(new Error(message, cause === undefined ? undefined : { cause }), { code });
+
+/** Parses the config file's text; an empty file is an empty config. Throws with a plain message otherwise. */
+export const parseConfigText = (text) => {
+  if (text.trim() === '') return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw configError(
+      'config-invalid-json',
+      'The Claude Desktop config file is not valid JSON, so it was left untouched. Open it (Claude > Settings > Developer > Edit Config), fix or remove the broken part, then run the setup again.',
+      error,
+    );
+  }
+  if (!isPlainObject(parsed)) {
+    throw configError(
+      'config-invalid-json',
+      'The Claude Desktop config file must contain a JSON object at the top level; it was left untouched.',
+    );
+  }
+  return parsed;
+};
+
+const readConfig = (path) => {
+  if (!existsSync(path)) return {};
+  let text;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (error) {
+    throw configError(
+      'config-unreadable',
+      `The Claude Desktop config file at ${path} could not be read (${error.code ?? error.message}). Nothing was changed.`,
+      error,
+    );
+  }
+  return parseConfigText(text);
+};
+
+const serversOf = (config) => {
+  const servers = config.mcpServers ?? {};
+  if (!isPlainObject(servers)) {
+    throw configError(
+      'config-invalid-json',
+      'The "mcpServers" entry in the Claude Desktop config is not an object, so the file was left untouched.',
+    );
+  }
+  return servers;
+};
+
+/** Sets the entry, keeping every other key. Pure: returns a new config. */
+export const mergeConfig = (config, entry) => {
+  const servers = serversOf(config);
+  const previous = classifyEntry(servers[SERVER_KEY], entry);
+  return {
+    previous,
+    changed: previous !== 'same',
+    config: { ...config, mcpServers: { ...servers, [SERVER_KEY]: entry } },
+  };
+};
+
+/** Drops the entry, keeping every other server. Pure: returns a new config. */
+export const removeEntry = (config) => {
+  const servers = serversOf(config);
+  if (!(SERVER_KEY in servers)) return { changed: false, config };
+  const { [SERVER_KEY]: _removed, ...rest } = servers;
+  return { changed: true, config: { ...config, mcpServers: rest } };
+};
+
+const timestamp = () => {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  return `${date}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+};
+
+// Temporary file plus rename: the config is either the old content or the new,
+// never a truncated mix. Owner-only permissions, like the file Claude writes.
+const writeAtomically = (path, config) => {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.zendesk-mcp-tmp-${process.pid}`;
+  writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, path);
+};
+
+// The old guide also registered the server with the Claude Code CLI
+// (`claude mcp add zendesk ...`, stored in ~/.claude.json). Reported only: the
+// Desktop entry wins on a name clash, and that file belongs to Claude Code.
+const claudeCodeHasEntry = () => {
+  try {
+    const config = JSON.parse(readFileSync(claudeCodeConfigPath(), 'utf8'));
+    // User scope sits at the top level; `claude mcp add`'s default local scope
+    // sits under projects[<dir>].
+    const holders = [
+      config?.mcpServers,
+      ...Object.values(config?.projects ?? {}).map((project) => project?.mcpServers),
+    ];
+    return holders.some((servers) => isPlainObject(servers) && SERVER_KEY in servers);
+  } catch {
+    return false;
+  }
+};
+
+const failWith = (code, message) => {
+  console.error(`FAIL: ${code} ${message}`);
+  process.exit(1);
+};
+
+const readArguments = () => {
+  try {
+    return parseArgs({
+      options: {
+        config: { type: 'string' },
+        node: { type: 'string' },
+        server: { type: 'string' },
+        subdomain: { type: 'string' },
+        remove: { type: 'boolean' },
+        'dry-run': { type: 'boolean' },
+      },
+    }).values;
+  } catch (error) {
+    return failWith(
+      'bad-arguments',
+      `${error.message}. Run this step through the skill, without extra options.`,
+    );
+  }
+};
+
+const main = () => {
+  const values = readArguments();
+  if (!values.remove && !(values.node && values.server)) {
+    failWith(
+      'missing-arguments',
+      'both --node and --server are required to register the connector',
+    );
+  }
+
+  // Follow a symlinked config (dotfiles setups) so the backup and the rename
+  // act on the real file instead of replacing the link with a regular file.
+  const givenPath = values.config ?? defaultConfigPath();
+  const exists = existsSync(givenPath);
+  const configPath = exists ? realpathSync(givenPath) : givenPath;
+  console.log(`CONFIG=${configPath}`);
+  let result;
+  try {
+    const config = readConfig(configPath);
+    if (values.remove) {
+      result = removeEntry(config);
+    } else {
+      const entry = buildEntry({
+        node: values.node,
+        server: values.server,
+        ...(values.subdomain ? { subdomain: values.subdomain } : {}),
+      });
+      result = mergeConfig(config, entry);
+      console.log(`PREVIOUS=${result.previous}`);
+      console.log(`CLAUDE_CODE_ENTRY=${claudeCodeHasEntry() ? 'present' : 'absent'}`);
+    }
+  } catch (error) {
+    failWith(error.code ?? 'config-invalid-json', error.message);
+  }
+
+  if (!result.changed) {
+    console.log('RESULT=unchanged');
+    return;
+  }
+  if (values['dry-run']) {
+    console.log('DRY_RUN=1');
+    console.log(`RESULT=${values.remove ? 'would-remove' : 'would-write'}`);
+    return;
+  }
+  if (exists) {
+    const backup = `${configPath}.zendesk-mcp-backup-${timestamp()}`;
+    copyFileSync(configPath, backup);
+    console.log(`BACKUP=${backup}`);
+  }
+  try {
+    writeAtomically(configPath, result.config);
+  } catch (error) {
+    failWith('config-write-failed', `could not write ${configPath}: ${error.message}`);
+  }
+  console.log(`FILE=${exists ? 'existing' : 'created'}`);
+  console.log(`RESULT=${values.remove ? 'removed' : 'written'}`);
+};
+
+// Only act when run directly, not when imported by verify.mjs or a test. Real
+// paths on both sides: argv[1] keeps any symlink (/tmp -> /private/tmp) that
+// import.meta.url has already resolved.
+const runDirectly = () => {
+  try {
+    return realpathSync(process.argv[1] ?? '') === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+};
+if (runDirectly()) main();

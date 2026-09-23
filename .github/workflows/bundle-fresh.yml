@@ -1,0 +1,118 @@
+name: Bundle fresh
+
+# The plugin ships a COMMITTED build of the server (plugins/zendesk-mcp/server).
+# This rebuilds it from the checked-out sources and lockfile and compares.
+#
+# On a pull request it builds the PR head (not the merge commit: the question is
+# "did the author rebuild after changing the sources", and a merge with a moved
+# main would fail an honestly rebuilt branch). A stale bundle fails the PR,
+# except when a bot (Renovate, Dependabot) opened it: nobody rebuilds on behalf
+# of a bot, so a dependency-only PR that would change the bundle only warns.
+# On pushes to main and weekly, a stale bundle on main is an error: it means a
+# plugin release ('pnpm build:plugin --bump') is due, and it is the one signal
+# that the shipped third-party code lags the scanned lockfile.
+# Why the bundle is committed and why these rules: docs/decisions/plugin-distribution.md.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '45 6 * * 1' # weekly, alongside the security re-scan
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle-fresh:
+    # The job name is what a required-status-check rule on main refers to.
+    name: Bundle fresh
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0 # the PR diff below needs the base commit too
+          persist-credentials: false # nothing here pushes (zizmor `artipacked`)
+
+      - name: Decide what this run has to do
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/build-plugin.mjs ] || ! grep -q '"build:plugin"' package.json; then
+            echo "::error::This branch has no plugin build (scripts/build-plugin.mjs, pnpm build:plugin). A branch that mirrors upstream, such as upstream-sync, needs main merged into it and 'pnpm build:plugin --bump' run before it can merge."
+            exit 1
+          fi
+          if [ "$EVENT" != "pull_request" ]; then
+            { echo "mode=main"; echo "rebuild=true"; echo "plugin=true"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Three-dot: only what this PR changed since it branched (see plugin-version.yml).
+          inputs="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" -- src tsconfig.json scripts/build-plugin.mjs plugins/zendesk-mcp package.json pnpm-lock.yaml pnpm-workspace.yaml)"
+          plugin_changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" -- plugins/zendesk-mcp)"
+          if [ -z "$inputs" ]; then
+            echo "Nothing this PR changed feeds the bundle; no rebuild needed."
+            echo "rebuild=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Bundle inputs changed by this PR:"
+            echo "$inputs" | sed 's/^/  /'
+            echo "rebuild=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$plugin_changed" ]; then echo "plugin=true" >> "$GITHUB_OUTPUT"; else echo "plugin=false" >> "$GITHUB_OUTPUT"; fi
+          if [ "$AUTHOR_TYPE" = "Bot" ]; then echo "mode=bot" >> "$GITHUB_OUTPUT"; else echo "mode=human" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        if: steps.scope.outputs.rebuild == 'true'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.scope.outputs.rebuild == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+        if: steps.scope.outputs.rebuild == 'true'
+
+      - run: pnpm build:plugin
+        if: steps.scope.outputs.rebuild == 'true'
+
+      - name: Compare with the committed bundle
+        if: steps.scope.outputs.rebuild == 'true'
+        env:
+          MODE: ${{ steps.scope.outputs.mode }}
+        run: |
+          set -euo pipefail
+          SERVER='plugins/zendesk-mcp/server'
+          if git diff --quiet -- "$SERVER" && [ -z "$(git status --porcelain -- "$SERVER")" ]; then
+            echo "The committed bundle matches a fresh build."
+            exit 0
+          fi
+          echo "A fresh build differs from the committed bundle:"
+          git --no-pager diff --stat -- "$SERVER"
+          git status --porcelain -- "$SERVER"
+          case "$MODE" in
+            bot)
+              echo "::warning::A dependency update by a bot changes the bundle. Nothing to do in this PR: the next plugin release ('pnpm build:plugin --bump') rebuilds with current dependencies, and this workflow's runs on main report until then."
+              ;;
+            main)
+              echo "::error::The committed plugin bundle on main is stale relative to its sources or lockfile. Cut a plugin release: 'pnpm build:plugin --bump', then a PR."
+              exit 1
+              ;;
+            *)
+              echo "::error::The committed plugin bundle is stale. Run 'pnpm build:plugin --bump' and commit plugins/zendesk-mcp (server/ and the version bump)."
+              exit 1
+              ;;
+          esac
+
+      - name: Validate the plugin structure
+        if: steps.scope.outputs.plugin == 'true'
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate plugins/zendesk-mcp
