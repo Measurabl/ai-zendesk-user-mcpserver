@@ -38,6 +38,16 @@ jobs:
         with:
           languages: javascript-typescript
           queries: security-extended
+          # plugins/zendesk-mcp/server/index.js is a generated bundle of src/ and
+          # its third-party dependencies (see docs/decisions/plugin-distribution.md).
+          # CodeQL already skips node_modules; bundling re-inlines that same
+          # dependency code as first-party and reports its findings against this
+          # repository, without anything here being able to fix them. The
+          # dependencies stay covered by dependency review and pnpm audit, and
+          # src/ itself is scanned as before.
+          config: |
+            paths-ignore:
+              - plugins/zendesk-mcp/server
 
       - uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
 

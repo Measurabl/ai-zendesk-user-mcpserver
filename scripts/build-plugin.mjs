@@ -16,7 +16,7 @@
 // Deterministic by construction: the same lockfile and sources give the same
 // bytes, so .github/workflows/bundle-fresh.yml can rebuild every PR and diff.
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -136,8 +136,9 @@ const bundle = async (version) => {
     logLevel: 'warning',
   });
   writeFileSync(paths.runtimePackage, `${JSON.stringify(runtimePackageJson(version), null, 2)}\n`);
-  const bytes = statSync(paths.bundle).size;
-  const sha256 = createHash('sha256').update(readFileSync(paths.bundle)).digest('hex');
+  const bundled = readFileSync(paths.bundle);
+  const bytes = bundled.length;
+  const sha256 = createHash('sha256').update(bundled).digest('hex');
   console.error(
     `[build-plugin] ${relative(root, paths.bundle)}: ${(bytes / 1024 / 1024).toFixed(2)} MB, sha256 ${sha256}`,
   );
