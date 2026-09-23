@@ -1,0 +1,70 @@
+name: Plugin version
+
+# Adapted from Measurabl/customer-360. The organization plugin sync only ships a
+# plugin when the `version` in its plugin.json changes on the default branch, so
+# a PR that changes anything under plugins/zendesk-mcp/ (skill, scripts, or the
+# committed server bundle) must bump it: `pnpm build:plugin --bump`. Reaching
+# nobody silently is the failure this prevents.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  require-version-bump:
+    name: Require plugin version bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the diff below needs both the base and the head commit
+          persist-credentials: false # nothing here pushes (zizmor `artipacked`)
+
+      - name: Require a version bump when shipped plugin content changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          MANIFEST='plugins/zendesk-mcp/.claude-plugin/plugin.json'
+          WATCHED='plugins/zendesk-mcp'
+          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- "$WATCHED")"
+          if [ -z "$changed" ]; then
+            echo "No changes under $WATCHED; a version bump is not required."
+            exit 0
+          fi
+          echo "Shipped plugin content changed:"
+          echo "$changed" | sed 's/^/  /'
+          # Neither helper may abort the script: set -e + pipefail would kill it
+          # on a failing git show or jq parse, skipping the diagnostics below.
+          manifest_at() { git show "$1:$MANIFEST" 2>/dev/null || true; }
+          version_in() { printf '%s' "${1:-}" | jq -r '.version // empty' 2>/dev/null || true; }
+          base_json="$(manifest_at "$BASE_SHA")"
+          head_json="$(manifest_at "$HEAD_SHA")"
+          if [ -z "$head_json" ]; then
+            echo "::error file=$MANIFEST::$MANIFEST is missing but plugin content changed."
+            exit 1
+          fi
+          head_version="$(version_in "$head_json")"
+          if [ -z "$head_version" ]; then
+            echo "::error file=$MANIFEST::Could not read .version (missing key or bad JSON)."
+            exit 1
+          fi
+          if [ -z "$base_json" ]; then
+            echo "$MANIFEST is new on this branch; treating '$head_version' as a bump."
+            exit 0
+          fi
+          base_version="$(version_in "$base_json")"
+          if [ -z "$base_version" ]; then
+            echo "::error file=$MANIFEST::Base commit has no readable .version. Fix the base branch."
+            exit 1
+          fi
+          if [ "$base_version" = "$head_version" ]; then
+            suggested="$(date -u +%Y.%-m.%-d)"
+            echo "::error file=$MANIFEST::Version is still '$base_version' but plugin content changed. Run 'pnpm build:plugin --bump' (today: '$suggested') and commit, so the org plugin sync picks the change up."
+            exit 1
+          fi
+          echo "Version bumped: $base_version -> $head_version"

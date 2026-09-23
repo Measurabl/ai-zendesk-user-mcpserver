@@ -1,0 +1,71 @@
+name: Bundle fresh
+
+# The plugin ships a COMMITTED build of the server (plugins/zendesk-mcp/server).
+# This rebuilds it from the PR's own sources and lockfile and compares. It fails
+# when the bundle is stale AND the PR touched something that feeds the bundle
+# (src/, the build script, tsconfig, or the plugin itself): run
+# `pnpm build:plugin --bump` and commit. A dependency-only PR (Renovate) that
+# would change the bundle only warns: nobody rebuilds on behalf of a bot, and
+# the next plugin release rebuilds with current dependencies anyway.
+# Why the bundle is committed and why this rule: docs/decisions/plugin-distribution.md.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle-fresh:
+    name: Committed plugin bundle matches a rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The PR head, not the merge commit: the check is "did the author
+          # rebuild after changing the sources", and a merge with a moved main
+          # would make an honestly rebuilt branch fail.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0 # the diff below needs the base commit too
+          persist-credentials: false # nothing here pushes (zizmor `artipacked`)
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build:plugin
+
+      - name: Compare with the committed bundle
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          SERVER='plugins/zendesk-mcp/server'
+          if git diff --quiet -- "$SERVER" && [ -z "$(git status --porcelain -- "$SERVER")" ]; then
+            echo "The committed bundle matches a fresh build."
+            exit 0
+          fi
+          echo "A fresh build differs from the committed bundle:"
+          git --no-pager diff --stat -- "$SERVER"
+          git status --porcelain -- "$SERVER"
+          feeds="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- src tsconfig.json scripts/build-plugin.mjs plugins/zendesk-mcp)"
+          if [ -n "$feeds" ]; then
+            echo "This PR changed inputs of the bundle:"
+            echo "$feeds" | sed 's/^/  /'
+            echo "::error::The committed plugin bundle is stale. Run 'pnpm build:plugin --bump' and commit plugins/zendesk-mcp (server/ and the version bump)."
+            exit 1
+          fi
+          echo "::warning::Dependency changes alter the bundle. Nothing to do in this PR: the next plugin release ('pnpm build:plugin --bump') rebuilds with current dependencies."
+          git checkout -- "$SERVER"
+
+      - name: Validate the plugin structure
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate plugins/zendesk-mcp
