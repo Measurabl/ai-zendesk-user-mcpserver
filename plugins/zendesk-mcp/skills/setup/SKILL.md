@@ -60,7 +60,9 @@ Run `bash "${CLAUDE_SKILL_DIR}/scripts/preflight.sh"`.
 Then give them the plan in two or three sentences: a small program (Node.js)
 is needed to run the connector, the connector's files go into a folder in
 their home directory, Claude Desktop's settings get one entry, and Claude
-restarts once. Say which of those steps will ask for their approval.
+restarts once. Say which steps will ask for their approval: the Node.js
+download (only if `NODE_FOUND=none`), the settings change, and the restart.
+The check and the file copy do not ask.
 
 ### 2. Node.js
 
@@ -70,7 +72,9 @@ version 24 from nodejs.org (about 53 MB) into your home folder and check it
 against its published checksum. Nothing is installed system-wide and no
 password is needed."
 
-Run `bash "${CLAUDE_SKILL_DIR}/scripts/ensure-node.sh"`. `NODE_SOURCE=existing`
+Run `bash "${CLAUDE_SKILL_DIR}/scripts/ensure-node.sh"` with a long timeout
+(ten minutes; the download can take a while on a slow connection, and the
+default tool timeout would cut it off). `NODE_SOURCE=existing`
 means the Mac already had a usable Node.js, `private` means the copy this
 plugin installed earlier is being reused, and `downloaded` means the private
 copy was just installed.

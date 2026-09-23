@@ -24,6 +24,7 @@ version="$(plugin_version)"
 case " $* " in
   *" --dry-run "*) ;;
   *)
+    claim_install_root
     printf '%s\n' "$version" >"$ZMCP_HOME/VERSION"
     say "INSTALLED_VERSION=$version"
     ;;

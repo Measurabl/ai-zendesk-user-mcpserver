@@ -154,13 +154,13 @@ const checkNode = (entry) => {
     env: bareEnvironment(),
     cwd: '/',
   });
-  const version = probe.status === 0 ? probe.stdout.trim() : '';
+  // spawnSync leaves stdout/stderr null when the exec itself failed (EACCES, a
+  // directory, a wrong-architecture binary); only `error` is set then.
+  const version = probe.status === 0 ? (probe.stdout ?? '').trim() : '';
   const major = Number(version.split('.')[0]);
   if (!version || Number.isNaN(major)) {
-    fail(
-      'node-binary',
-      `${entry.command} did not run outside a shell (${probe.stderr.trim() || 'no output'})`,
-    );
+    const reason = probe.error?.message || (probe.stderr ?? '').trim() || 'no output';
+    fail('node-binary', `${entry.command} did not run outside a shell (${reason})`);
     return false;
   }
   if (major < minNodeMajor) {

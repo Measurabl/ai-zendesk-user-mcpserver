@@ -13,7 +13,7 @@ fi
 version="$(plugin_version)"
 [ -n "$version" ] || fail plugin-version-unreadable "Could not read the plugin version from .claude-plugin/plugin.json."
 
-mkdir -p "$ZMCP_HOME"
+claim_install_root
 rm -rf "$ZMCP_HOME/server.tmp"
 mkdir -p "$ZMCP_HOME/server.tmp"
 cp -R "$src"/. "$ZMCP_HOME/server.tmp"/ || fail install-copy-failed "Could not copy the server files into $ZMCP_HOME."

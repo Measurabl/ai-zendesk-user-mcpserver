@@ -6,9 +6,10 @@ the connector. The server's own troubleshooting guide (sign-in flow, callback
 port, token file, logs) is
 [docs/troubleshooting.md in the source repository](https://github.com/Measurabl/ai-zendesk-user-mcpserver/blob/main/docs/troubleshooting.md).
 
-<!-- PLACEHOLDER: paste the troubleshooting table from the Confluence page
-     "Zendesk Connector for Claude" (space 1MSR) below this line, then delete
-     this comment. Keep it as a Markdown table. -->
+<!-- Maintainer note, not an instruction for anyone reading this during a
+     failure: the troubleshooting table from the Confluence page "Zendesk
+     Connector for Claude" (space 1MSR) is to be pasted below this line as a
+     Markdown table in a later release, and this note removed. -->
 
 ## Failure codes printed by the setup scripts
 
@@ -20,6 +21,7 @@ Every script ends a failure with one line: `FAIL: <code> <message>`.
 | `no-claude-desktop` (exit 2) | Claude Desktop is not in /Applications or ~/Applications. | Install Claude Desktop from claude.ai/download, open it once, run the setup again. |
 | `unsupported-arch` | The Mac is neither Apple silicon (arm64) nor Intel (x86_64). | Not supported; contact the maintainers. |
 | `install-root-invalid` | The install folder resolved to something unsafe (empty, `/`, or the home folder itself). Only possible with a broken `ZENDESK_MCP_HOME` override. | Unset the override. |
+| `install-root-unrecognized` | The install folder exists, is not empty, and was not created by these scripts (no `.zendesk-mcp` marker), so nothing is written into it or deleted from it. Only possible with a `ZENDESK_MCP_HOME` override pointing at an existing folder. | Point the override at a new or empty folder, or unset it. |
 | `plugin-incomplete` | The plugin copy on this Mac has no `server/index.js` or `server/package.json`. The organization plugin sync dropped or has not finished delivering them. | Quit and reopen Claude, wait a minute, try again. If it persists, the maintainers need to check the plugin sync. |
 | `plugin-version-unreadable` | `.claude-plugin/plugin.json` in the plugin copy is missing or has no version. | Same as `plugin-incomplete`. |
 | `node-download-failed` | nodejs.org could not be reached, or a download stopped. | Check the internet connection; a VPN or proxy may block nodejs.org. Try again. |
@@ -58,6 +60,13 @@ The plugin is not installed for this account yet, or Claude has not reloaded
 it. Install it from the plugin catalog (Customize > Plugins > Browse plugins,
 under the organization's plugins), then start a new Code tab session. In a
 session that is already open, `/reload-plugins` picks up new plugins.
+
+### The Node.js download stopped with a timeout message from Claude
+
+The download itself gives up on a stalled connection, but a slow connection
+can also hit Claude's own limit on how long one command may run. Run
+`/zendesk-mcp:setup` again; the skill asks for a ten-minute limit on that step.
+Nothing half-downloaded is kept.
 
 ### Claude quit but did not reopen
 

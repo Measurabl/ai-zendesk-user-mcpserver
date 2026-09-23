@@ -1,12 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -180,7 +183,9 @@ describe('merge-config.mjs as a command', () => {
     expect(statSync(config).mode % 0o1000).toBe(0o600);
     const backups = backupsIn(dir);
     expect(backups).toHaveLength(1);
-    expect(result.stdout).toContain(`BACKUP=${join(dir, backups[0] ?? '')}`);
+    // The CLI works on the config's real path (a symlinked config is edited in
+    // place), and macOS reaches its temp dir through a symlink, so compare real paths.
+    expect(result.stdout).toContain(`BACKUP=${join(realpathSync(dir), backups[0] ?? '')}`);
     expect(readdirSync(dir).some((name) => name.includes('-tmp-'))).toBe(false);
   });
 
@@ -293,6 +298,20 @@ describe('merge-config.mjs as a command', () => {
     expect(result.stdout).toMatch(/^RESULT=unchanged$/m);
     expect(result.stdout).not.toMatch(/^FILE=/m);
     expect(existsSync(config)).toBe(false);
+  });
+
+  it('edits the target of a symlinked config and keeps the symlink', () => {
+    const dir = scratch();
+    const target = join(dir, 'real-config.json');
+    const link = join(dir, 'claude_desktop_config.json');
+    writeFileSync(target, JSON.stringify({ mcpServers: { other: { command: 'x' } } }));
+    symlinkSync(target, link);
+
+    const result = run(['--config', link, '--node', NODE, '--server', SERVER]);
+
+    expect(result.status).toBe(0);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(readFileSync(target, 'utf8')).mcpServers.zendesk).toEqual(entry);
   });
 
   it('refuses to register without the node and server paths', () => {

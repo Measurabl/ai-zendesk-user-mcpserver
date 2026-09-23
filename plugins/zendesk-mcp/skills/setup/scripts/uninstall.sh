@@ -28,6 +28,7 @@ else
 fi
 
 if [ -d "$ZMCP_HOME" ]; then
+  install_root_is_ours || fail install-root-unrecognized "The folder '$ZMCP_HOME' is not a connector install. Refusing to delete it."
   rm -rf "$ZMCP_HOME"
   say "INSTALL_DIR=removed"
 else

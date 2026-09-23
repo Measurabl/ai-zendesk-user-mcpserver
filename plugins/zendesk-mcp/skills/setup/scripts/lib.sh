@@ -39,6 +39,19 @@ case "$ZMCP_HOME" in
   "" | / | "$HOME" | "$HOME/") fail install-root-invalid "Refusing to use '$ZMCP_HOME' as the connector's folder." ;;
 esac
 
+# The scripts only ever write into, or remove, a folder they created themselves,
+# recognised by this marker. A pre-existing, non-empty folder without it (a
+# mis-set ZENDESK_MCP_HOME, say) is refused rather than reused or deleted.
+ZMCP_MARKER="$ZMCP_HOME/.zendesk-mcp"
+claim_install_root() {
+  if [ -d "$ZMCP_HOME" ] && [ ! -f "$ZMCP_MARKER" ] && [ -n "$(ls -A "$ZMCP_HOME" 2>/dev/null)" ]; then
+    fail install-root-unrecognized "The folder '$ZMCP_HOME' already exists and is not a connector install. Refusing to write into it."
+  fi
+  mkdir -p "$ZMCP_HOME"
+  : >"$ZMCP_MARKER"
+}
+install_root_is_ours() { [ -f "$ZMCP_MARKER" ]; }
+
 # Reads a top-level "key": "value" string out of a small JSON file without jq
 # or node (either may be missing). Prints nothing when the file or key is
 # absent, so callers can fail with their own code instead of a raw sed error.

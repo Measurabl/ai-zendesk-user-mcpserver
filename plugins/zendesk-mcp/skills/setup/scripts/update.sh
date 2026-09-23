@@ -1,8 +1,9 @@
 #!/bin/bash
 # Brings the installed connector in line with the plugin: when the recorded
-# version differs from the plugin's, the server is copied and registered again
-# (both steps are idempotent, and register.sh records the version only after it
-# succeeded, so a failed registration is retried next time). The plugin is the
+# version differs from the plugin's, Node is checked (and installed if it went
+# missing), then the server is copied and registered again (every step is
+# idempotent, and register.sh records the version only after it succeeded, so
+# a failed registration is retried next time). The plugin is the
 # source of truth: whatever the organization ships is what should be installed.
 # Prints STATUS=not-installed|up-to-date|updated.
 . "$(dirname "$0")/lib.sh"
@@ -21,6 +22,7 @@ if [ "$installed" = "$target" ]; then
   say "STATUS=up-to-date"
   exit 0
 fi
+bash "$ZMCP_SCRIPT_DIR/ensure-node.sh"
 bash "$ZMCP_SCRIPT_DIR/install-server.sh"
 bash "$ZMCP_SCRIPT_DIR/register.sh"
 say "STATUS=updated"

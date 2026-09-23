@@ -43,12 +43,13 @@ case "$(uname -m)" in
   *) fail unsupported-arch "This Mac reports architecture '$(uname -m)'; only Apple silicon (arm64) and Intel (x86_64) are supported." ;;
 esac
 file="node-${NODE_VERSION_PINNED}-darwin-${node_arch}.tar.gz"
+claim_install_root
 work="$ZMCP_HOME/tmp"
 rm -rf "$work"
 mkdir -p "$work"
 trap 'rm -rf "$work"' EXIT
 
-curl -fsSL --retry 3 --connect-timeout 20 -o "$work/SHASUMS256.txt" "$NODE_DIST/$NODE_VERSION_PINNED/SHASUMS256.txt" ||
+curl -fsSL --retry 3 --connect-timeout 20 --max-time 60 -o "$work/SHASUMS256.txt" "$NODE_DIST/$NODE_VERSION_PINNED/SHASUMS256.txt" ||
   fail node-download-failed "Could not reach nodejs.org to download Node.js $NODE_VERSION_PINNED. Check the internet connection (a VPN or proxy may block nodejs.org) and try again."
 published="$(grep " $file\$" "$work/SHASUMS256.txt" | awk '{print $1}' || true)"
 [ -n "$published" ] || fail node-checksum-missing "nodejs.org's checksum list has no entry for $file."
@@ -56,7 +57,9 @@ published="$(grep " $file\$" "$work/SHASUMS256.txt" | awk '{print $1}' || true)"
   fail node-checksum-mismatch "The checksum nodejs.org publishes for $file differs from the one pinned in this plugin. Nothing was downloaded or installed. Tell the plugin maintainers."
 
 say "Downloading Node.js $NODE_VERSION_PINNED for $node_arch from nodejs.org (about 53 MB)..."
-curl -fsSL --retry 3 --connect-timeout 20 -o "$work/$file" "$NODE_DIST/$NODE_VERSION_PINNED/$file" ||
+# Give up on a stall (under 10 KB/s for a minute) or after ten minutes, so a
+# dead connection ends in a FAIL line instead of a hang.
+curl -fsSL --retry 3 --connect-timeout 20 --max-time 600 --speed-limit 10240 --speed-time 60 -o "$work/$file" "$NODE_DIST/$NODE_VERSION_PINNED/$file" ||
   fail node-download-failed "Could not download $file from nodejs.org. Check the internet connection (a VPN or proxy may block nodejs.org) and try again."
 if command -v shasum >/dev/null 2>&1; then
   actual="$(shasum -a 256 "$work/$file" | awk '{print $1}')"

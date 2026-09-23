@@ -164,7 +164,13 @@ const writeAtomically = (path, config) => {
 const claudeCodeHasEntry = () => {
   try {
     const config = JSON.parse(readFileSync(claudeCodeConfigPath(), 'utf8'));
-    return isPlainObject(config?.mcpServers) && SERVER_KEY in config.mcpServers;
+    // User scope sits at the top level; `claude mcp add`'s default local scope
+    // sits under projects[<dir>].
+    const holders = [
+      config?.mcpServers,
+      ...Object.values(config?.projects ?? {}).map((project) => project?.mcpServers),
+    ];
+    return holders.some((servers) => isPlainObject(servers) && SERVER_KEY in servers);
   } catch {
     return false;
   }
@@ -204,8 +210,11 @@ const main = () => {
     );
   }
 
-  const configPath = values.config ?? defaultConfigPath();
-  const exists = existsSync(configPath);
+  // Follow a symlinked config (dotfiles setups) so the backup and the rename
+  // act on the real file instead of replacing the link with a regular file.
+  const givenPath = values.config ?? defaultConfigPath();
+  const exists = existsSync(givenPath);
+  const configPath = exists ? realpathSync(givenPath) : givenPath;
   console.log(`CONFIG=${configPath}`);
   let result;
   try {
