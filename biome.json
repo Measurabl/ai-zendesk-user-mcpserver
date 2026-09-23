@@ -1,8 +1,20 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["**", "!!**/node_modules"] },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": ["**", "!!**/node_modules", "!!plugins/zendesk-mcp/server"]
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
   "linter": {
     "enabled": true,
     "rules": {
@@ -108,14 +120,24 @@
   "overrides": [
     {
       "includes": ["**/*.config.ts", "**/*.config.mts", "**/*.config.mjs"],
-      "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
-    },
-    {
-      "includes": ["tests/**", "scripts/**"],
       "linter": {
         "rules": {
-          "complexity": { "noExcessiveCognitiveComplexity": "off" },
-          "performance": { "useTopLevelRegex": "off" }
+          "style": {
+            "noDefaultExport": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["tests/**", "scripts/**", "plugins/**/scripts/**"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          },
+          "performance": {
+            "useTopLevelRegex": "off"
+          }
         }
       }
     }

@@ -1,0 +1,11 @@
+{
+  "name": "zendesk-mcp",
+  "displayName": "Zendesk connector for Claude",
+  "version": "2026.9.23",
+  "description": "Sets up the Measurabl Zendesk connector for Claude Desktop from the Code tab on a Mac. One command installs a prebuilt copy of the Zendesk MCP server, registers it with Claude Desktop and restarts Claude; each person then signs in with Measurabl SSO (Okta) on first use. No credentials ship with the plugin. Usage: /zendesk-mcp:setup [install|verify|update|uninstall].",
+  "author": { "name": "Measurabl" },
+  "homepage": "https://github.com/Measurabl/ai-zendesk-user-mcpserver",
+  "repository": "https://github.com/Measurabl/ai-zendesk-user-mcpserver",
+  "license": "MIT",
+  "keywords": ["measurabl", "zendesk", "mcp", "claude-desktop", "setup"]
+}

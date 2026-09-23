@@ -1,0 +1,16 @@
+{
+  "name": "ai-zendesk-user-mcpserver",
+  "owner": { "name": "Measurabl" },
+  "metadata": {
+    "description": "Development marketplace for the Measurabl Zendesk connector plugin (local testing and Claude Code CLI installs). Organization-wide distribution goes through Measurabl/claude-org-management, which vendors this plugin."
+  },
+  "plugins": [
+    {
+      "name": "zendesk-mcp",
+      "displayName": "Zendesk connector for Claude",
+      "source": "./plugins/zendesk-mcp",
+      "version": "2026.9.23",
+      "description": "One-command setup of the Measurabl Zendesk connector for Claude Desktop, from the Code tab on a Mac. Sign-in stays per user through Measurabl SSO (Okta)."
+    }
+  ]
+}

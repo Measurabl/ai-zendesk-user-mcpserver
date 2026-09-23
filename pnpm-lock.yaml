@@ -104,6 +104,9 @@ importers:
       conventional-changelog-conventionalcommits:
         specifier: ^10.2.1
         version: 10.3.0
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       lefthook:
         specifier: ^2.1.10
         version: 2.1.10

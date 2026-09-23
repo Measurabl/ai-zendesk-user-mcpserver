@@ -74,5 +74,6 @@
       "matchDepNames": ["typescript-legacy"],
       "allowedVersions": "<7.0.0"
     }
-  ]
+  ],
+  "ignorePaths": ["**/node_modules/**", "**/bower_components/**", "plugins/**"]
 }
