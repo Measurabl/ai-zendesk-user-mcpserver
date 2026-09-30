@@ -39,7 +39,11 @@ const paths = {
  */
 export const RUNTIME_PACKAGE_NAME = '@fruggr/zendesk-mcp-server';
 
-/** Matches package.json#engines.node: the plugin may run on any Node >= 20. */
+/**
+ * Matches package.json#engines.node: the bundle itself runs on any Node >= 20.
+ * The setup skill installs it on Node 24 or newer (ZMCP_MIN_NODE_MAJOR in the
+ * skill's lib.sh); keeping the syntax target lower costs nothing.
+ */
 export const NODE_TARGET = 'node20';
 
 /**

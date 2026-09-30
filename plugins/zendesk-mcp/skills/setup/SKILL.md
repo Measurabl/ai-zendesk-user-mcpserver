@@ -66,16 +66,17 @@ The check and the file copy do not ask.
 
 ### 2. Node.js
 
-If preflight printed `NODE_FOUND=none`, explain first: "Your Mac has no copy
-of Node.js, the program that runs the connector. I will download the official
-version 24 from nodejs.org (about 53 MB) into your home folder and check it
-against its published checksum. Nothing is installed system-wide and no
-password is needed."
+If preflight printed `NODE_FOUND=none`, explain first: "The connector needs
+Node.js 24 or newer, the program that runs it, and your Mac doesn't have it. I
+will download the official version 24 from nodejs.org (about 53 MB) into your
+home folder and check it against its published checksum. Nothing is installed
+system-wide, no password is needed, and any other Node.js on your Mac is left
+as it is."
 
 Run `bash "${CLAUDE_SKILL_DIR}/scripts/ensure-node.sh"` with a long timeout
 (ten minutes; the download can take a while on a slow connection, and the
 default tool timeout would cut it off). `NODE_SOURCE=existing`
-means the Mac already had a usable Node.js, `private` means the copy this
+means the Mac already had Node.js 24 or newer, `private` means the copy this
 plugin installed earlier is being reused, and `downloaded` means the private
 copy was just installed.
 

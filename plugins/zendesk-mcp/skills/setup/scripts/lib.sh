@@ -17,7 +17,10 @@ ZMCP_CONFIG="${ZENDESK_MCP_CLAUDE_CONFIG:-$HOME/Library/Application Support/Clau
 ZMCP_SUBDOMAIN="${ZENDESK_MCP_SUBDOMAIN:-measurablhelp}"
 # Where the old Confluence guide had people clone and build the server.
 ZMCP_OLD_GUIDE_CLONE="$HOME/dev/ai-zendesk-user-mcpserver"
-ZMCP_MIN_NODE_MAJOR=20
+# The server itself runs on Node 20+, but the connector is installed on Node 24
+# or newer: Node 20 is past end of life, and an older Node on the Mac is left
+# alone while the pinned Node 24 is installed privately instead.
+ZMCP_MIN_NODE_MAJOR=24
 # Claude Desktop's main executable, as `ps -o comm` prints it, wherever the app lives.
 ZMCP_CLAUDE_MAIN_RE='/Claude\.app/Contents/MacOS/Claude$'
 

@@ -6,7 +6,7 @@ with `+N` for a second release on the same day) and match
 at the commit that cut the release; its own history is the repository's
 `CHANGELOG.md`.
 
-## 2026.9.23
+## 2026.9.30
 
 First release.
 
@@ -14,9 +14,9 @@ First release.
   and `uninstall`, for the Claude Desktop Code tab on macOS.
 - Bundled server: this repository's `src/` (upstream `@fruggr/zendesk-mcp-server`
   2.18.0 plus Measurabl's OAuth loopback and state fixes), one self-contained
-  ESM file, Node 20 or newer.
+  ESM file. The connector is installed on Node 24 or newer.
 - Node.js v24.21.0 (LTS) downloaded from nodejs.org only when the Mac has no
-  Node 20+, verified against `SHASUMS256.txt` and a checksum pinned in the
+  Node 24 or newer (an older Node is ignored and left alone), verified against `SHASUMS256.txt` and a checksum pinned in the
   script.
 - Replaces the manual Confluence guide; an entry left by that guide is detected
   and replaced, and an existing Zendesk sign-in is kept.

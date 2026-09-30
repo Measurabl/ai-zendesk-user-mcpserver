@@ -7,7 +7,7 @@
 // browser. resources/list is deliberately not sent: it would call Zendesk.
 //
 //   node verify.mjs --config <claude_desktop_config.json> --home <install root>
-//                   [--subdomain measurablhelp] [--min-node 20]
+//                   [--subdomain measurablhelp] [--min-node 24]
 //
 // Prints one `PASS <check>: <detail>` or `FAIL <check>: <detail>` line per
 // check and `SUMMARY=pass|fail`; when anything failed it also prints
@@ -48,7 +48,7 @@ try {
   );
 }
 const subdomain = values.subdomain ?? DEFAULT_SUBDOMAIN;
-const minNodeMajor = Number(values['min-node'] ?? '20');
+const minNodeMajor = Number(values['min-node'] ?? '24');
 
 const outcomes = [];
 const failed = [];

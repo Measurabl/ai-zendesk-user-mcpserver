@@ -116,12 +116,18 @@ project of its own and nothing here prevents it later.
 
 The server is copied to `~/.local/share/zendesk-mcp/server/`, never run from
 the plugin directory, whose path changes on every plugin update. When the Mac
-has no Node 20+, `ensure-node.sh` downloads Node.js v24.21.0 (LTS, maintained
+has no Node 24+, `ensure-node.sh` downloads Node.js v24.21.0 (LTS, maintained
 until April 2028) into `~/.local/share/zendesk-mcp/node/` and verifies it twice:
 against nodejs.org's `SHASUMS256.txt` and against the checksum pinned in the
 script, so a corrupt or substituted download is never unpacked. Node is not
 bundled into the plugin: it is architecture-specific and the two builds alone
 exceed the 50 MB cap.
+
+The floor is Node 24, not the Node 20 the server itself supports: Node 20
+reached end of life in April 2026, and a connector that non-engineers never
+update by hand should start on the current LTS. An older Node already on the
+Mac is ignored, not upgraded or removed, so nothing else the person runs is
+affected.
 
 ### 2.6 Restart through launchd
 

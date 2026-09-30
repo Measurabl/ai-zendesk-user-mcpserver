@@ -1,6 +1,7 @@
 #!/bin/bash
-# Finds a Node.js 20 or newer for the connector, or installs a private, pinned
-# copy under $ZMCP_HOME/node (nothing system-wide, no Homebrew, no sudo).
+# Finds a Node.js 24 or newer for the connector, or installs a private, pinned
+# Node 24 under $ZMCP_HOME/node (nothing system-wide, no Homebrew, no sudo). An
+# older Node already on the Mac is ignored and left alone.
 # nodejs.org's checksum list is fetched first and compared with the checksum
 # pinned below, so a stale pin fails before the 53 MB download; the downloaded
 # file is then verified against that checksum before it is unpacked.

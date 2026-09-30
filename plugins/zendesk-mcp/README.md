@@ -42,8 +42,9 @@ newer plugin version, `uninstall` removes everything.
   (`install-server.sh`) are pre-approved through `allowed-tools` as exact,
   argument-free commands; the Node download, the config edit, the restart, and
   uninstall each ask for approval.
-- **Node.js.** `ensure-node.sh` reuses any Node 20+ already on the Mac
-  (Homebrew, `/usr/local`, PATH, nvm), but only one that runs the way Claude
+- **Node.js.** The connector runs on Node.js 24 or newer. `ensure-node.sh`
+  reuses a Node 24+ already on the Mac (Homebrew, `/usr/local`, PATH, nvm) and
+  ignores anything older, but only one that runs the way Claude
   Desktop will run it: with no PATH and no shell profile, so version-manager
   shims are never chosen. Otherwise it downloads the pinned Node.js LTS from
   nodejs.org into `~/.local/share/zendesk-mcp/node/`, after checking nodejs.org's
