@@ -33,10 +33,16 @@ const fakeNode = (path: string, version: string) => {
 };
 
 // Sources lib.sh in /bin/bash with a scratch HOME and install root, then runs
-// `snippet`; lib.sh's `set -e` is why the snippets branch with `if`.
+// `snippet`; lib.sh's `set -e` is why the snippets branch with `if`. No
+// system-wide Node locations, so a Node on this machine can never win.
 const runLib = (home: string, snippet: string) =>
   spawnSync('/bin/bash', ['-c', `. "${LIB}" && ${snippet}`], {
-    env: { HOME: home, PATH: '/usr/bin:/bin', ZENDESK_MCP_HOME: join(home, 'install') },
+    env: {
+      HOME: home,
+      PATH: '/usr/bin:/bin',
+      ZENDESK_MCP_HOME: join(home, 'install'),
+      ZENDESK_MCP_SYSTEM_NODES: '',
+    },
     encoding: 'utf8',
   });
 
@@ -70,20 +76,29 @@ describe('setup scripts: Node version floor', () => {
     const home = scratch();
     fakeNode(join(home, '.nvm', 'versions', 'node', 'v20.19.4', 'bin', 'node'), '20.19.4');
     const result = runLib(home, `if found="$(find_node)"; then printf '%s' "$found"; fi`);
-    expect(result.stdout).not.toContain('.nvm');
+    expect(result.stdout).toBe('');
   });
 
   it('prefers the newest nvm Node 24 over an older nvm install', () => {
     const home = scratch();
     fakeNode(join(home, '.nvm', 'versions', 'node', 'v20.19.4', 'bin', 'node'), '20.19.4');
+    fakeNode(join(home, '.nvm', 'versions', 'node', 'v24.9.0', 'bin', 'node'), '24.9.0');
     const node24 = fakeNode(
       join(home, '.nvm', 'versions', 'node', 'v24.21.0', 'bin', 'node'),
       '24.21.0',
     );
     const result = runLib(home, `if found="$(find_node)"; then printf '%s' "$found"; fi`);
-    // A system-wide Node (Homebrew, /usr/local) is checked first and may win on
-    // this machine; the contract is only that Node 20 never does.
-    expect(result.stdout).not.toContain('v20.19.4');
-    if (result.stdout.includes('.nvm')) expect(result.stdout).toBe(node24);
+    expect(result.stdout).toBe(node24);
+  });
+
+  it('picks a system-wide Node 24 before an nvm one', () => {
+    const home = scratch();
+    const system = fakeNode(join(home, 'system', 'bin', 'node'), '24.21.0');
+    fakeNode(join(home, '.nvm', 'versions', 'node', 'v25.1.0', 'bin', 'node'), '25.1.0');
+    const result = runLib(
+      home,
+      `ZMCP_SYSTEM_NODES="${system}"; if found="$(find_node)"; then printf '%s' "$found"; fi`,
+    );
+    expect(result.stdout).toBe(system);
   });
 });

@@ -28,7 +28,8 @@ own Zendesk permissions. The plugin ships no credentials of any kind.
    many open tickets I can see.*
 
 Later: `/zendesk-mcp:setup verify` checks the installation, `update` picks up a
-newer plugin version, `uninstall` removes everything.
+newer plugin version, `uninstall` removes the connector (your Zendesk sign-in
+is kept unless you ask to delete it).
 
 ## How it works
 

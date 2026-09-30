@@ -313,6 +313,23 @@ describe('merge-config.mjs as a command', () => {
     expect(backupsIn(dir)).toHaveLength(0);
   });
 
+  it('fails with a FAIL line and leaves the config untouched when the backup cannot be written', () => {
+    const dir = scratch();
+    const config = join(dir, 'claude_desktop_config.json');
+    const original = JSON.stringify({ mcpServers: { other: { command: 'x' } } });
+    writeFileSync(config, original);
+    chmodSync(dir, 0o500);
+
+    const result = run(['--config', config, '--node', NODE, '--server', SERVER]);
+    chmodSync(dir, 0o700);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^FAIL: config-backup-failed /m);
+    expect(result.stdout).not.toMatch(/^RESULT=/m);
+    expect(readFileSync(config, 'utf8')).toBe(original);
+    expect(backupsIn(dir)).toHaveLength(0);
+  });
+
   it('reports an unreadable config (a directory in its place) as unreadable, not as invalid JSON', () => {
     const dir = scratch();
     const config = join(dir, 'claude_desktop_config.json');

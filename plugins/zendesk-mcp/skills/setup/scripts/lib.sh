@@ -15,6 +15,8 @@ ZMCP_PLUGIN_ROOT="$(cd "$ZMCP_SKILL_DIR/../.." && pwd -P)"
 ZMCP_HOME="${ZENDESK_MCP_HOME:-$HOME/.local/share/zendesk-mcp}"
 ZMCP_CONFIG="${ZENDESK_MCP_CLAUDE_CONFIG:-$HOME/Library/Application Support/Claude/claude_desktop_config.json}"
 ZMCP_SUBDOMAIN="${ZENDESK_MCP_SUBDOMAIN:-measurablhelp}"
+# The system-wide places find_node looks for Node, space-separated.
+ZMCP_SYSTEM_NODES="${ZENDESK_MCP_SYSTEM_NODES-/opt/homebrew/bin/node /usr/local/bin/node}"
 # Where the old Confluence guide had people clone and build the server.
 ZMCP_OLD_GUIDE_CLONE="$HOME/dev/ai-zendesk-user-mcpserver"
 # The server itself runs on Node 20+, but the connector is installed on Node 24
@@ -128,7 +130,8 @@ node_usable() {
 # into the Claude config is the one that was checked.
 find_node() {
   local candidate version
-  for candidate in "$ZMCP_HOME/node/bin/node" /opt/homebrew/bin/node /usr/local/bin/node; do
+  # shellcheck disable=SC2086 # ZMCP_SYSTEM_NODES is a space-separated list.
+  for candidate in "$ZMCP_HOME/node/bin/node" $ZMCP_SYSTEM_NODES; do
     if [ -x "$candidate" ] && node_usable "$candidate"; then
       say "$candidate"
       return 0

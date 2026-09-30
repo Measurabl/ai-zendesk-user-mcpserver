@@ -271,7 +271,13 @@ const main = () => {
     console.log(`RESULT=${values.remove ? 'would-remove' : 'would-write'}`);
     return;
   }
-  if (exists) console.log(`BACKUP=${backUp(configPath)}`);
+  if (exists) {
+    try {
+      console.log(`BACKUP=${backUp(configPath)}`);
+    } catch (error) {
+      failWith('config-backup-failed', `could not back up ${configPath}: ${error.message}`);
+    }
+  }
   try {
     writeAtomically(configPath, result.config);
   } catch (error) {
