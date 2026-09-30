@@ -244,6 +244,19 @@ to re-authenticate every time, and `Permission denied` on the Guide-admin
 endpoints are covered in **[docs/troubleshooting.md](docs/troubleshooting.md)**.
 Restart with `LOG_LEVEL=debug` for the full OAuth flow trace.
 
+## Claude Desktop plugin (Measurabl)
+
+For Measurabl colleagues who are not engineers, this repository also ships a
+Claude plugin, `plugins/zendesk-mcp`, whose single skill sets the connector up
+from the Claude Desktop Code tab on a Mac with one command,
+`/zendesk-mcp:setup`: it installs a prebuilt copy of this server, downloads
+Node.js if the Mac has none, registers the server with Claude Desktop, and
+restarts Claude. Sign-in stays per user, through the browser. The plugin is
+distributed through Measurabl's internal plugin marketplace, because this
+repository is public. How it works, how to release it, and the steps only a
+human can do: **[plugins/zendesk-mcp/README.md](plugins/zendesk-mcp/README.md)**.
+The reasoning: [docs/decisions/plugin-distribution.md](docs/decisions/plugin-distribution.md).
+
 ## Development
 
 Setting up the repo, the toolchain, dev mode and how to test a PR branch are
