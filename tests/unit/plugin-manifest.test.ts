@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -154,35 +154,37 @@ describe('setup skill frontmatter', () => {
 
 describe('token file path (lib.sh vs the server)', () => {
   it('lib.sh computes the same token path the server derives from its package name', () => {
-    const home = mkdtempSync(join(tmpdir(), 'zmcp-home-'));
+    // HOME is not faked: under a worker-thread test runner (Stryker's vitest
+    // pool) a process.env.HOME change never reaches os.homedir(), which reads
+    // the real environment. So the script gets the real home the server sees,
+    // plus a decoy XDG_CONFIG_HOME that the Desktop-launched server never
+    // receives and lib.sh must therefore ignore.
+    const scratch = mkdtempSync(join(tmpdir(), 'zmcp-home-'));
+    const saved = { xdg: process.env.XDG_CONFIG_HOME, file: process.env.ZENDESK_TOKEN_FILE };
     try {
-      // The Desktop-launched server never sees a profile XDG_CONFIG_HOME, so
-      // lib.sh must not honour the shell's either.
-      const env: Record<string, string> = {
-        HOME: home,
-        PATH: '/usr/bin:/bin',
-        XDG_CONFIG_HOME: join(home, 'elsewhere'),
-      };
       const lib = at(`${PLUGIN_DIR}/skills/setup/scripts/lib.sh`);
       const shell = spawnSync('/bin/bash', ['-c', `. "${lib}" && printf '%s' "$ZMCP_TOKEN_FILE"`], {
-        env,
+        env: {
+          HOME: homedir(),
+          PATH: '/usr/bin:/bin',
+          XDG_CONFIG_HOME: join(scratch, 'elsewhere'),
+          ZENDESK_MCP_HOME: join(scratch, 'install'),
+        },
         encoding: 'utf8',
       });
       expect(shell.status).toBe(0);
-      const saved = { HOME: process.env.HOME, XDG: process.env.XDG_CONFIG_HOME };
-      process.env.HOME = home;
+      // The two overrides the server reads from process.env, which a worker
+      // thread can change for itself; neither reaches a Desktop-launched server.
       delete process.env.XDG_CONFIG_HOME;
-      try {
-        expect(shell.stdout).toBe(resolveTokenPath('measurablhelp'));
-      } finally {
-        process.env.HOME = saved.HOME;
-        if (saved.XDG !== undefined) process.env.XDG_CONFIG_HOME = saved.XDG;
-      }
+      delete process.env.ZENDESK_TOKEN_FILE;
+      expect(shell.stdout).toBe(resolveTokenPath('measurablhelp'));
       expect(shell.stdout).toBe(
-        join(home, '.config', 'fruggr', 'zendesk-mcp-server', 'measurablhelp.json'),
+        join(homedir(), '.config', 'fruggr', 'zendesk-mcp-server', 'measurablhelp.json'),
       );
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      if (saved.xdg !== undefined) process.env.XDG_CONFIG_HOME = saved.xdg;
+      if (saved.file !== undefined) process.env.ZENDESK_TOKEN_FILE = saved.file;
+      rmSync(scratch, { recursive: true, force: true });
     }
   });
 });
