@@ -106,8 +106,10 @@ also exists, that Claude uses the Desktop one, and that it can be ignored.
 Say all of this before running anything else:
 
 1. Claude will quit and reopen by itself within a few seconds. This
-   conversation ends when it does; that is expected. If Claude has not
-   reopened after about 15 seconds, open it from Applications.
+   conversation ends when it does; that is expected. So does anything else
+   still working in Claude, such as another chat or Code session, so ask them
+   to let it finish first. If Claude has not reopened after about 15 seconds,
+   open it from Applications.
 2. The first time Claude uses the connector, a browser window opens. Sign in
    with Measurabl SSO (Okta) and click Allow. The window may or may not close
    on its own; either is fine.
@@ -136,7 +138,14 @@ code to look up in troubleshooting.
 
 ## update
 
-Run `bash "${CLAUDE_SKILL_DIR}/scripts/update.sh"`. `STATUS=not-installed`:
+Explain first: if the plugin has a newer version, this one approval copies the
+new connector files, downloads Node.js again if the copy it uses has gone
+missing, and updates the connector's entry in Claude Desktop's settings after a
+backup.
+
+Run `bash "${CLAUDE_SKILL_DIR}/scripts/update.sh"` with a long timeout (ten
+minutes, as in install step 2, because the Node.js download can happen here
+too). `STATUS=not-installed`:
 offer to install. `up-to-date`: say so. `updated`: say the new version is in
 place and that Claude has to restart to use it; offer the restart, and if they
 accept, give the step 5 explanation and then run

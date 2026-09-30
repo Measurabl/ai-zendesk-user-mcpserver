@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Registers the Zendesk connector in Claude Desktop's config file, or removes
 // it. Everything else in the file is preserved. Before any write the current
-// file is backed up beside itself, and the new content is written to a
-// temporary file and renamed into place, so a crash cannot leave a half-written
-// config. A file that cannot be read or is not valid JSON is never touched.
+// file is backed up beside itself (owner-only; the three most recent backups
+// are kept), and the new content is written to a temporary file and renamed
+// into place, so a crash cannot leave a half-written config. A file that cannot
+// be read or is not valid JSON is never touched.
 //
 //   node merge-config.mjs --node <abs node> --server <abs server/index.js> \
 //        [--subdomain measurablhelp] [--config <path>] [--dry-run]
@@ -14,20 +15,23 @@
 // then either RESULT=unchanged, or DRY_RUN=1 with RESULT=would-write|would-remove,
 // or BACKUP=<path> (when a file existed), FILE=existing|created and
 // RESULT=written|removed. Failures print one `FAIL: <code> <message>` line on
-// stderr and exit 1. Run through register.sh or uninstall.sh, which resolve a
-// Node binary for this script.
+// stderr and exit 1; an old backup that could not be removed after a
+// successful write is a `WARN:` line instead. Run through register.sh or
+// uninstall.sh, which resolve a Node binary for this script.
 import {
   chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
@@ -148,6 +152,29 @@ const timestamp = () => {
   return `${date}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 };
 
+// Every change leaves a full copy of the config beside it, and that copy can
+// hold other servers' credentials, so backups are owner-only and only the most
+// recent few are kept. The timestamp makes name order chronological order.
+const BACKUP_INFIX = '.zendesk-mcp-backup-';
+const KEPT_BACKUPS = 3;
+
+const backUp = (path) => {
+  const backup = `${path}${BACKUP_INFIX}${timestamp()}`;
+  copyFileSync(path, backup);
+  chmodSync(backup, 0o600);
+  return backup;
+};
+
+const pruneBackups = (path) => {
+  const prefix = `${basename(path)}${BACKUP_INFIX}`;
+  const backups = readdirSync(dirname(path))
+    .filter((name) => name.startsWith(prefix))
+    .sort();
+  for (const name of backups.slice(0, -KEPT_BACKUPS)) {
+    rmSync(join(dirname(path), name), { force: true });
+  }
+};
+
 // Temporary file plus rename: the config is either the old content or the new,
 // never a truncated mix. Owner-only permissions, like the file Claude writes.
 const writeAtomically = (path, config) => {
@@ -244,15 +271,18 @@ const main = () => {
     console.log(`RESULT=${values.remove ? 'would-remove' : 'would-write'}`);
     return;
   }
-  if (exists) {
-    const backup = `${configPath}.zendesk-mcp-backup-${timestamp()}`;
-    copyFileSync(configPath, backup);
-    console.log(`BACKUP=${backup}`);
-  }
+  if (exists) console.log(`BACKUP=${backUp(configPath)}`);
   try {
     writeAtomically(configPath, result.config);
   } catch (error) {
     failWith('config-write-failed', `could not write ${configPath}: ${error.message}`);
+  }
+  if (exists) {
+    try {
+      pruneBackups(configPath);
+    } catch (error) {
+      console.error(`WARN: could not remove older config backups: ${error.message}`);
+    }
   }
   console.log(`FILE=${exists ? 'existing' : 'created'}`);
   console.log(`RESULT=${values.remove ? 'removed' : 'written'}`);

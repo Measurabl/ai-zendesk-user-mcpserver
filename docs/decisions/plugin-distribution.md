@@ -88,7 +88,13 @@ Dependabot) opened the PR: nobody rebuilds on a bot's behalf (no bot commits,
 a deliberate choice), so a dependency update that would change the bundle only
 warns there. The exemption is by author, not by a list of "bundle inputs",
 because such a list has to be maintained and a human dependency bump meant to
-reach AEs must not slip through as a warning. The head commit, not the merge
+reach AEs must not slip through as a warning. It covers only a bundle that is
+stale, never one that was edited: a bot PR that changes `server/` itself is
+held to the human rule, because the bundle is collapsed in PR diffs and skipped
+by CodeQL and Biome, so a bundle no build reproduces would be code nobody
+reviewed. The exemption fits any `Bot` author, not only Renovate and
+Dependabot (github-actions, Copilot's coding agent, any GitHub App), which is
+why it is narrowed by what the PR touched. The head commit, not the merge
 commit, is built so that an honestly rebuilt branch cannot fail because `main`
 moved. Diffs are three-dot (what the PR itself changed): the weekly
 upstream-sync branch mirrors an upstream that has no plugin at all, and a
@@ -139,10 +145,17 @@ bundle id, and removes itself; only then does it ask Claude to quit (via
 `osascript`, falling back to `SIGTERM`) and waits for the quit to land. If
 Claude is still running after 25 seconds the job is withdrawn and the script
 returns exit 3, so the person is told to quit and reopen by hand instead of
-being promised a restart that did not happen. Verified: the job runs after the
-submitting shell has exited. Not yet verified from a developer machine, and
-part of the fresh-account test: that it survives the app quitting, and that
-macOS asks no Automation permission for the quit.
+being promised a restart that did not happen. launchd re-runs a submitted job
+every time it exits, a clean exit included (measured: a job that exits 0 ran
+every 10 seconds until it was removed), so the job's own `launchctl remove` is
+what ends it. In case that removal ever fails, the job reopens Claude only while
+a one-shot sentinel file exists and deletes the sentinel just before it does,
+so any later run removes itself without reopening anything: a failed removal
+cannot turn into Claude reopening every time the person quits it. Verified: the
+job runs after the submitting shell has exited. Not yet verified from a
+developer machine, and part of the fresh-account test: that it survives the app
+quitting, that it is gone afterwards, and that macOS asks no Automation
+permission for the quit.
 
 ### 2.7 What the skill pre-approves
 

@@ -39,7 +39,10 @@ macOS dialog, and anything Claude said that a non-engineer would not understand.
 4. Watch the Mac: Claude should quit and reopen by itself within ~10 seconds.
    Record: did it reopen? Did macOS show any dialog (for example an Automation
    permission request)? If Claude did not reopen, open it from Applications and
-   record that the fallback was needed.
+   record that the fallback was needed. Then check that the relaunch job is
+   gone: after a minute, quit Claude with Cmd+Q, wait 15 seconds, and confirm it
+   stays closed, and `launchctl list | grep zendesk-mcp` in Terminal prints
+   nothing. Reopen Claude.
 5. Count: how many approval prompts did steps 3 and 4 show in total? Expected 3.
 
 ## Part 2: first use and sign-in
@@ -71,7 +74,8 @@ macOS dialog, and anything Claude said that a non-engineer would not understand.
     `~/.config/fruggr` are gone (the token folders are removed when nothing
     else is in them), and that
     `~/Library/Application Support/Claude/` contains a
-    `claude_desktop_config.json.zendesk-mcp-backup-…` file per config change.
+    `claude_desktop_config.json.zendesk-mcp-backup-…` file per config change,
+    never more than three.
 
 ## Part 4: the failure paths (optional, 5 minutes)
 
@@ -95,7 +99,7 @@ Please send back, in this order:
 | `server/index.js` was present in the synced plugin (preflight did not stop with `plugin-incomplete`) | |
 | Number of approval prompts during install | |
 | Preflight and the server copy ran without a prompt (pre-approval works in a synced plugin) | |
-| Claude reopened by itself after the restart; any macOS dialog | |
+| Claude reopened by itself after the restart; any macOS dialog; it then stayed closed after Cmd+Q | |
 | Okta sign-in worked; ticket count matched Zendesk | |
 | Code tab session also had the connector | |
 | verify / update / uninstall behaved as expected | |

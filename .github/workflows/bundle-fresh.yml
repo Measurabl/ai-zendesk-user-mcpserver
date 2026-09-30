@@ -6,8 +6,10 @@ name: Bundle fresh
 # On a pull request it builds the PR head (not the merge commit: the question is
 # "did the author rebuild after changing the sources", and a merge with a moved
 # main would fail an honestly rebuilt branch). A stale bundle fails the PR,
-# except when a bot (Renovate, Dependabot) opened it: nobody rebuilds on behalf
-# of a bot, so a dependency-only PR that would change the bundle only warns.
+# except when a bot (Renovate, Dependabot) opened it and left the bundle alone:
+# nobody rebuilds on behalf of a bot, so a dependency-only PR that would change
+# the bundle only warns. A bot PR that edits the bundle itself is held to the
+# human rule, because a bundle that no build reproduces is unreviewed code.
 # On pushes to main and weekly, a stale bundle on main is an error: it means a
 # plugin release ('pnpm build:plugin --bump') is due, and it is the one signal
 # that the shipped third-party code lags the scanned lockfile.
@@ -57,6 +59,7 @@ jobs:
           # Three-dot: only what this PR changed since it branched (see plugin-version.yml).
           inputs="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" -- src tsconfig.json scripts/build-plugin.mjs plugins/zendesk-mcp package.json pnpm-lock.yaml pnpm-workspace.yaml)"
           plugin_changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" -- plugins/zendesk-mcp)"
+          bundle_changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" -- plugins/zendesk-mcp/server)"
           if [ -z "$inputs" ]; then
             echo "Nothing this PR changed feeds the bundle; no rebuild needed."
             echo "rebuild=false" >> "$GITHUB_OUTPUT"
@@ -66,7 +69,7 @@ jobs:
             echo "rebuild=true" >> "$GITHUB_OUTPUT"
           fi
           if [ -n "$plugin_changed" ]; then echo "plugin=true" >> "$GITHUB_OUTPUT"; else echo "plugin=false" >> "$GITHUB_OUTPUT"; fi
-          if [ "$AUTHOR_TYPE" = "Bot" ]; then echo "mode=bot" >> "$GITHUB_OUTPUT"; else echo "mode=human" >> "$GITHUB_OUTPUT"; fi
+          if [ "$AUTHOR_TYPE" = "Bot" ] && [ -z "$bundle_changed" ]; then echo "mode=bot" >> "$GITHUB_OUTPUT"; else echo "mode=human" >> "$GITHUB_OUTPUT"; fi
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         if: steps.scope.outputs.rebuild == 'true'
@@ -113,6 +116,7 @@ jobs:
 
       - name: Validate the plugin structure
         if: steps.scope.outputs.plugin == 'true'
+        # Pinned like every action here; Renovate bumps it (customManagers in renovate.json).
         run: |
-          npm install -g @anthropic-ai/claude-code
+          npm install -g @anthropic-ai/claude-code@2.1.282
           claude plugin validate plugins/zendesk-mcp

@@ -109,7 +109,7 @@ them to sign in at measurablhelp.zendesk.com and compare.
 | What | Where |
 | --- | --- |
 | Installed server and private Node.js | `~/.local/share/zendesk-mcp/` (`server/`, `node/`, `VERSION`) |
-| Claude Desktop settings | `~/Library/Application Support/Claude/claude_desktop_config.json`, entry `mcpServers.zendesk`; backups beside it as `claude_desktop_config.json.zendesk-mcp-backup-<timestamp>` |
+| Claude Desktop settings | `~/Library/Application Support/Claude/claude_desktop_config.json`, entry `mcpServers.zendesk`; backups beside it as `claude_desktop_config.json.zendesk-mcp-backup-<timestamp>` (owner-only; the three most recent are kept) |
 | Zendesk sign-in token (owner-only file) | `~/.config/fruggr/zendesk-mcp-server/measurablhelp.json` |
 | Connector logs | `~/Library/Logs/Claude/mcp-server-zendesk.log` |
 | Old manual-guide install, if any | `~/dev/ai-zendesk-user-mcpserver` and, for the Claude Code CLI, an entry in `~/.claude.json` |

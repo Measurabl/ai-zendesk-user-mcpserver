@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -187,6 +188,48 @@ describe('merge-config.mjs as a command', () => {
     // place), and macOS reaches its temp dir through a symlink, so compare real paths.
     expect(result.stdout).toContain(`BACKUP=${join(realpathSync(dir), backups[0] ?? '')}`);
     expect(readdirSync(dir).some((name) => name.includes('-tmp-'))).toBe(false);
+  });
+
+  it('makes the backup owner-only even when the config was readable by others', () => {
+    const dir = scratch();
+    const config = join(dir, 'claude_desktop_config.json');
+    writeFileSync(config, JSON.stringify({ mcpServers: { other: { env: { TOKEN: 'x' } } } }), {
+      mode: 0o644,
+    });
+    chmodSync(config, 0o644);
+
+    const result = run(['--config', config, '--node', NODE, '--server', SERVER]);
+
+    expect(result.status).toBe(0);
+    const backups = backupsIn(dir);
+    expect(backups).toHaveLength(1);
+    expect(statSync(join(dir, backups[0] ?? '')).mode % 0o1000).toBe(0o600);
+  });
+
+  it('keeps the three most recent backups of this config and touches no other file', () => {
+    const dir = scratch();
+    const config = join(dir, 'claude_desktop_config.json');
+    writeFileSync(config, JSON.stringify({ mcpServers: {} }));
+    const older = ['20200101-000000', '20200102-000000', '20200103-000000'].map(
+      (stamp) => `claude_desktop_config.json.zendesk-mcp-backup-${stamp}`,
+    );
+    const unrelated = [
+      'claude_desktop_config.json.bak',
+      'other.json.zendesk-mcp-backup-20190101-000000',
+    ];
+    for (const name of [...older, ...unrelated]) writeFileSync(join(dir, name), '{}');
+
+    const result = run(['--config', config, '--node', NODE, '--server', SERVER]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    const kept = readdirSync(dir)
+      .filter((name) => name.startsWith('claude_desktop_config.json.zendesk-mcp-backup-'))
+      .sort();
+    expect(kept).toHaveLength(3);
+    expect(kept.slice(0, 2)).toEqual(older.slice(1));
+    expect(result.stdout).toContain(`BACKUP=${join(realpathSync(dir), kept[2] ?? '')}`);
+    for (const name of unrelated) expect(existsSync(join(dir, name))).toBe(true);
   });
 
   it('creates the file when Claude Desktop has never written one', () => {

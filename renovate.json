@@ -75,6 +75,17 @@
       "allowedVersions": "<7.0.0"
     }
   ],
+  "customManagers": [
+    {
+      "description": "bundle-fresh.yml installs the Claude Code CLI with npm to run 'claude plugin validate'. The version is pinned there like every action in these workflows, and this manager keeps the pin moving under the same 5-day minimumReleaseAge.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "npm install -g (?<depName>@anthropic-ai/claude-code)@(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "npm"
+    }
+  ],
   "ignorePaths": [
     "**/node_modules/**",
     "**/bower_components/**",

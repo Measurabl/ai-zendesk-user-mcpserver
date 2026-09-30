@@ -110,11 +110,12 @@ sync to ship anything.
    (these are the job names a branch rule refers to): **Plugin version** fails
    when `plugins/zendesk-mcp/**` changed without a version bump; **Bundle fresh**
    rebuilds the bundle from the PR's sources and fails when it differs, except
-   on a PR opened by a bot (Renovate, Dependabot), which only warns, because
-   nobody rebuilds on a bot's behalf. Bundle fresh also runs on every push to
-   `main` and weekly, where a stale bundle is an error: it means a release is
-   due, and it is the one signal that the shipped dependencies lag the scanned
-   lockfile. It also runs `claude plugin validate` when the plugin changed.
+   on a PR opened by a bot (Renovate, Dependabot) that leaves `server/` alone,
+   which only warns, because nobody rebuilds on a bot's behalf. Bundle fresh
+   also runs on every push to `main` and weekly, where a stale bundle is an
+   error: it means a release is due, and it is the one signal that the shipped
+   dependencies lag the scanned lockfile. It also runs `claude plugin validate`
+   when the plugin changed.
    The weekly upstream-sync PR needs `main` merged into it and a rebuild before
    it can pass either check.
 5. After the merge, re-vendor the plugin into
@@ -169,7 +170,8 @@ These are exercised by `docs/plugin-fresh-mac-test.md` and were not observable
 from a developer machine: that the organization sync delivers `server/index.js`
 intact; that `${CLAUDE_SKILL_DIR}` substitution and `allowed-tools`
 pre-approval behave the same inside an organization-synced plugin as with
-`--plugin-dir`; that the launchd relaunch survives Claude quitting and that
+`--plugin-dir`; that the launchd relaunch survives Claude quitting, is gone
+afterwards, and that
 macOS does not ask an Automation permission for the quit; the exact number of
 approval prompts an AE sees; that the Intel build of Node.js installs (only
 Apple silicon was exercised here); and the Okta sign-in end to end.
