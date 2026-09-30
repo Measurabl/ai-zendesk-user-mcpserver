@@ -6,6 +6,20 @@ with `+N` for a second release on the same day) and match
 at the commit that cut the release; its own history is the repository's
 `CHANGELOG.md`.
 
+## 2026.9.30+1
+
+The fixes that landed after the first release was vendored into the
+organization marketplace, which shipped the plugin without them.
+
+- Bundle rebuilt on patched runtime dependencies: undici 7.30.0 (a TLS
+  certificate validation bypass in 7.29.0), fast-uri 3.1.8, and hono 4.13.9.
+- The Claude relaunch job is one-shot: launchd re-runs a submitted job after
+  every exit, so a failed self-removal could have reopened Claude each time it
+  was quit.
+- Claude Desktop config backups are owner-only and only the three most recent
+  are kept; a backup that cannot be written stops the change with
+  `FAIL: config-backup-failed` instead of a stack trace.
+
 ## 2026.9.30
 
 First release.
